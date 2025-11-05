@@ -15,6 +15,10 @@ import logging
 import threading
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from modules.token_counter import count_message_tokens
 from modules.backends import get_backend, MemoryBackend

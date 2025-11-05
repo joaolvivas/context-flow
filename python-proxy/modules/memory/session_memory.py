@@ -22,7 +22,7 @@ class SessionMemory:
     - Semantic search over recent facts
     """
     
-    FACT_EXTRACTION_PROMPT = """Extract key facts from this conversation turn. 
+    FACT_EXTRACTION_PROMPT = """Extract key facts from this conversation turn.
 Focus on:
 - Personal information (names, preferences, relationships)
 - Important details (locations, dates, events)
@@ -33,9 +33,9 @@ Keep facts concise and specific.
 
 Example output:
 [
-    {"category": "pet", "fact": "User's dog is named Max"},
-    {"category": "preference", "fact": "User's favorite color is black"},
-    {"category": "team", "fact": "User supports Botafogo football club"}
+    {{"category": "pet", "fact": "User's dog is named Max"}},
+    {{"category": "preference", "fact": "User's favorite color is black"}},
+    {{"category": "team", "fact": "User supports Botafogo football club"}}
 ]
 
 Conversation:

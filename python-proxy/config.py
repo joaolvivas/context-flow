@@ -26,6 +26,13 @@ class Settings(BaseSettings):
         env="DEFAULT_MODEL"
     )
 
+    # OpenAI API Key (required for Tier 2 fact extraction)
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        env="OPENAI_API_KEY",
+        description="OpenAI API key for fact extraction in Tier 2"
+    )
+
     # MCP/Graphiti
     mcp_search_endpoint: str = Field(
         default="http://localhost:5000/mcp/search",

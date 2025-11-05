@@ -21,18 +21,34 @@ class MemoryRouter:
     """
     
     # Patterns that suggest deep/historical queries (2% of queries)
+    # Supports English and Portuguese
     DEEP_QUERY_PATTERNS = [
+        # English patterns
         r'\b(remember|recall|previous|earlier|before|history|past)\b',
         r'\b(when did|how long|since when|relationship|connection)\b',
         r'\b(compare|difference|similar|related to|evolution|timeline)\b',
-        r'\b(all my|every time|throughout|over time)\b',
+        r'\b(all my|every time|throughout|over time|everything)\b',
+        r'\b(background|experience|career|professional|work history)\b',
+        # Portuguese patterns
+        r'\b(lembr|record|anterior|antes|história|passado)\b',
+        r'\b(quando|quanto tempo|desde quando|relacionamento|conexão)\b',
+        r'\b(compar|diferença|similar|relacionado|evolução|linha do tempo)\b',
+        r'\b(tod[oa]s? (minhas?|meus?|a informação)|sempre|ao longo)\b',
+        r'\b(background|experiência|carreira|profissional|histórico|trajetória)\b',
+        r'\b(me conte|me fale|traga|busque).{0,30}(tudo|toda|informação)\b',
     ]
-    
+
     # Patterns for factual queries (8% of queries)
+    # Supports English and Portuguese
     FACTUAL_QUERY_PATTERNS = [
+        # English patterns
         r'\b(what is|what\'s|who is|where is|name|favorite|prefer)\b',
         r'\b(my .{1,20}\?|tell me about|information about)\b',
         r'\b(list|show|display) (my|all)\b',
+        # Portuguese patterns
+        r'\b(o que é|qual é|quem é|onde é|nome|favorito|prefiro|prefer)\b',
+        r'\b(me fale sobre|informação sobre|me conte sobre|sobre mim)\b',
+        r'\b(list|mostr|exib)[ea]r? (meu|minha|todo|toda)\b',
     ]
     
     def __init__(
