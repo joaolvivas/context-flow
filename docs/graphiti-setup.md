@@ -294,7 +294,7 @@ curl -X POST http://localhost:5000/mcp/search \
 **8. Update Memory Router Proxy `.env`:**
 
 ```bash
-# In python-proxy/.env
+# In .env
 MCP_SEARCH_ENDPOINT=http://localhost:5000/mcp/search
 MCP_STORE_ENDPOINT=http://localhost:5000/mcp/store
 ```
@@ -546,7 +546,7 @@ docker cp neo4j-memory:/backups/backup.dump ./backup.dump
 
 You can use the Memory Router Proxy without MCP/Graphiti:
 
-**In `python-proxy/.env`:**
+**In `.env`:**
 ```bash
 MEMORY_ENABLED=false
 ```

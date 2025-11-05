@@ -231,8 +231,8 @@ cd /Users/joaolucas/graphiti/mcp_server
 python http_wrapper.py  # Port 5001
 
 # Memory Proxy (Main service)
-cd /Users/joaolucas/Desktop/Proxy\ Orchestrator/proxy-orchestrator/python-proxy
-python main.py  # Port 8000
+cd /path/to/memorystack
+python -m uvicorn src.memorystack.main:app --host 0.0.0.0 --port 8000
 ```
 
 ### Environment Variables
@@ -264,7 +264,7 @@ NEO4J_PASSWORD=...
 
 ### Core System Files
 ```
-python-proxy/
+src/memorystack/
 ├── main.py                              # Entry point, dual endpoints
 ├── config.py                            # Configuration management
 ├── modules/

@@ -19,7 +19,7 @@ You'll need:
   <Step title="Clone and Install">
     ```bash
     git clone <your-repo>
-    cd proxy-orchestrator/python-proxy
+    cd proxy-orchestrator
 
     # Create virtual environment
     python -m venv venv

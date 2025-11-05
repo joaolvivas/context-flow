@@ -1,9 +1,9 @@
 #!/bin/bash
-# Startup script for Proxy Orchestrator + Graphiti HTTP Bridge
+# Startup script for MemoryStack + Graphiti HTTP Bridge
 
 set -e
 
-echo "🚀 Starting Proxy Orchestrator with Graphiti Memory..."
+echo "🚀 Starting MemoryStack with Graphiti Memory..."
 echo ""
 
 # Colors
@@ -12,10 +12,10 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Check if .env exists
-if [ ! -f "python-proxy/.env" ]; then
-    echo "⚠️  python-proxy/.env not found. Copying from .env.example..."
-    cp python-proxy/.env.example python-proxy/.env
-    echo "✏️  Please edit python-proxy/.env with your settings"
+if [ ! -f ".env" ]; then
+    echo "⚠️  .env not found. Copying from .env.example..."
+    cp .env.example .env
+    echo "✏️  Please edit .env with your settings"
     exit 1
 fi
 
@@ -35,16 +35,16 @@ start_bridge() {
         pip install fastapi uvicorn neo4j python-dotenv graphiti-core pydantic
     fi
     
-    python graphiti_http_bridge.py &
+    python src/memorystack/bridges/graphiti_http_bridge.py &
     BRIDGE_PID=$!
     echo -e "${GREEN}✓ HTTP Bridge started (PID: $BRIDGE_PID)${NC}"
 }
 
 # Function to start Memory Proxy
 start_proxy() {
-    echo -e "${BLUE}Starting Memory Proxy (Port 8000)...${NC}"
-    cd "$(dirname "$0")/python-proxy"
-    
+    echo -e "${BLUE}Starting MemoryStack (Port 8000)...${NC}"
+    cd "$(dirname "$0")/.."
+
     # Check if venv exists
     if [ ! -d "venv" ]; then
         echo "Creating venv..."
@@ -54,10 +54,10 @@ start_proxy() {
     else
         source venv/bin/activate
     fi
-    
-    python main.py &
+
+    python -m uvicorn src.memorystack.main:app --host 0.0.0.0 --port 8000 &
     PROXY_PID=$!
-    echo -e "${GREEN}✓ Memory Proxy started (PID: $PROXY_PID)${NC}"
+    echo -e "${GREEN}✓ MemoryStack started (PID: $PROXY_PID)${NC}"
 }
 
 # Trap Ctrl+C and cleanup
@@ -88,7 +88,7 @@ echo -e "${GREEN}✅ Both services started!${NC}"
 echo ""
 echo "Endpoints:"
 echo "  - HTTP Bridge: http://localhost:5000"
-echo "  - Memory Proxy: http://localhost:8000"
+echo "  - MemoryStack: http://localhost:8000"
 echo ""
 echo "Test with:"
 echo "  curl http://localhost:5000/health"

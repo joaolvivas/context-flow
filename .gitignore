@@ -26,6 +26,9 @@ pip-delete-this-directory.txt
 *.log
 logs/
 
+# Runtime files
+*.pid
+
 # User profiles
 profiles/
 
