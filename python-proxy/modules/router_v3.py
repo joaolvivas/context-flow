@@ -84,9 +84,18 @@ def route_to_llm(
     api_key: str,
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
-    stream: bool = False
+    stream: bool = False,
+    tools: Optional[List[Dict]] = None,
+    tool_choice: Optional[Dict] = None,
+    functions: Optional[List[Dict]] = None,
+    function_call: Optional[Dict] = None,
+    **extra_params
 ) -> Dict:
-    """Forward request to LLM provider."""
+    """
+    Forward request to LLM provider.
+
+    Passes through all OpenAI parameters including tools/functions for MCP compatibility.
+    """
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -101,6 +110,21 @@ def route_to_llm(
 
     if max_tokens:
         payload["max_tokens"] = max_tokens
+
+    # Forward tool calling parameters (newer format - MCP uses this)
+    if tools:
+        payload["tools"] = tools
+    if tool_choice:
+        payload["tool_choice"] = tool_choice
+
+    # Forward function calling parameters (legacy format)
+    if functions:
+        payload["functions"] = functions
+    if function_call:
+        payload["function_call"] = function_call
+
+    # Forward any additional parameters
+    payload.update(extra_params)
 
     response = requests.post(
         f"{provider_url}/chat/completions",
@@ -169,18 +193,23 @@ def memory_route_v3(
     memory_enabled: bool = True,
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
-    stream: bool = False
+    stream: bool = False,
+    tools: Optional[List[Dict]] = None,
+    tool_choice: Optional[Dict] = None,
+    functions: Optional[List[Dict]] = None,
+    function_call: Optional[Dict] = None,
+    **extra_params
 ) -> Dict:
     """
     3-Tier memory routing with intelligent tier selection.
-    
+
     Flow:
     1. Extract user query
     2. Get context from appropriate tiers (Working + Session + Graphiti when needed)
     3. Enrich messages with context
     4. Forward to LLM
     5. Store response across tiers
-    
+
     Args:
         messages: Chat messages
         model: LLM model
@@ -194,7 +223,12 @@ def memory_route_v3(
         temperature: Sampling temperature
         max_tokens: Max response tokens
         stream: Stream response
-    
+        tools: Tool definitions for function calling (MCP format)
+        tool_choice: Tool selection strategy
+        functions: Function definitions (legacy format)
+        function_call: Function calling strategy (legacy format)
+        **extra_params: Additional parameters to pass to LLM
+
     Returns:
         LLM response with memory metadata
     """
@@ -275,7 +309,7 @@ def memory_route_v3(
         if tiered_context:
             metadata["tokens_memory"] = len(tiered_context.split())  # Approximate
 
-        # Forward to LLM
+        # Forward to LLM (pass through all parameters including tools for MCP)
         response = route_to_llm(
             enriched_messages,
             model,
@@ -283,7 +317,12 @@ def memory_route_v3(
             api_key,
             temperature,
             max_tokens,
-            stream
+            stream,
+            tools=tools,
+            tool_choice=tool_choice,
+            functions=functions,
+            function_call=function_call,
+            **extra_params
         )
 
         # Extract token usage

@@ -151,7 +151,24 @@ async def handle_chat_completion(
 
         # Convert Pydantic models to dicts for memory_route
         messages_dicts = [msg.dict() if hasattr(msg, 'dict') else msg for msg in body.messages]
-        
+
+        # Prepare extra parameters to pass through to LLM (for MCP tool calls)
+        extra_params = {}
+        if body.presence_penalty is not None:
+            extra_params['presence_penalty'] = body.presence_penalty
+        if body.frequency_penalty is not None:
+            extra_params['frequency_penalty'] = body.frequency_penalty
+        if body.top_p is not None:
+            extra_params['top_p'] = body.top_p
+        if body.n is not None:
+            extra_params['n'] = body.n
+        if body.stop is not None:
+            extra_params['stop'] = body.stop
+        if body.logit_bias is not None:
+            extra_params['logit_bias'] = body.logit_bias
+        if body.user is not None:
+            extra_params['user'] = body.user
+
         # Route through 3-tier memory system (V3)
         response = memory_route_v3(
             messages=messages_dicts,
@@ -165,7 +182,12 @@ async def handle_chat_completion(
             memory_enabled=body.memory_enabled and settings.memory_enabled,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
-            stream=body.stream
+            stream=body.stream,
+            tools=body.tools,
+            tool_choice=body.tool_choice,
+            functions=body.functions,
+            function_call=body.function_call,
+            **extra_params
         )
 
         # Handle streaming

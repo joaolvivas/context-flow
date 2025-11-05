@@ -39,9 +39,13 @@ class ChatCompletionRequest(BaseModel):
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
 
-    # Function calling
+    # Function calling (legacy format)
     functions: Optional[List[FunctionDefinition]] = None
     function_call: Optional[Union[str, Dict[str, str]]] = None
+
+    # Tool calling (newer format - used by MCP)
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
 
     # Memory Router custom fields
     memory_enabled: Optional[bool] = Field(
