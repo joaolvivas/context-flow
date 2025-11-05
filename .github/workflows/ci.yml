@@ -62,14 +62,14 @@ jobs:
 
     - name: Build Docker image
       run: |
-        docker build -t memorystack:test .
+        docker build -t contextflow:test .
 
     - name: Test Docker image
       run: |
-        docker run -d --name memorystack-test -p 8000:8000 memorystack:test
+        docker run -d --name contextflow-test -p 8000:8000 contextflow:test
         sleep 10
         curl -f http://localhost:8000/health || exit 1
-        docker stop memorystack-test
+        docker stop contextflow-test
 
   documentation:
     runs-on: ubuntu-latest

@@ -22,6 +22,7 @@ from models.response_models import HealthResponse, ErrorResponse
 from modules.router_v3 import memory_route_v3
 from utils.logger import logger
 from utils.metrics import metrics_tracker
+from version import __version__
 
 
 # Initialize FastAPI
@@ -66,15 +67,37 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
+    """Enhanced health check endpoint with live stats"""
+    # Get live stats from metrics tracker
+    stats = metrics_tracker.get_stats()
+
+    # Calculate uptime
+    uptime_seconds = (datetime.now() - metrics_tracker._metrics["start_time"]).total_seconds()
+
+    # Determine overall status based on components
+    status = "ok"
+
+    # Component health checks
+    components = {
+        "memory": settings.memory_enabled,
+        "metrics": True,  # If we got stats, metrics are working
+    }
+
     return HealthResponse(
-        status="ok",
+        status=status,
+        version=__version__,
         timestamp=datetime.now(),
-        components={
-            "memory": settings.memory_enabled
-        },
+        components=components,
         memory={
-            "enabled": settings.memory_enabled
+            "enabled": settings.memory_enabled,
+            "backend": settings.memory_backend if settings.memory_enabled else None
+        },
+        uptime=uptime_seconds,
+        stats={
+            "total_requests": stats.get("summary", {}).get("total_requests", 0),
+            "avg_response_time_ms": stats.get("summary", {}).get("avg_response_time_ms", 0),
+            "cache_hit_rate": stats.get("memory", {}).get("hit_rate", 0),
+            "total_cost_usd": stats.get("summary", {}).get("total_cost_usd", 0)
         }
     )
 

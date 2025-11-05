@@ -80,6 +80,8 @@ class HealthResponse(BaseModel):
     timestamp: datetime
     components: Dict[str, bool]
     memory: Dict[str, Any]
+    uptime: Optional[float] = Field(None, description="Service uptime in seconds")
+    stats: Optional[Dict[str, Any]] = Field(None, description="Live performance statistics")
 
 
 class ErrorResponse(BaseModel):
