@@ -1,337 +1,201 @@
-# 🧠 Memory Orchestrator Proxy
+# 🧠 Memory Router Proxy
 
-An intelligent proxy server that enriches LLM requests with contextual memory from your personal knowledge graph via Graphiti MCP and Neo4j.
+> **Self-hosted Memory Router for LLMs** - Free alternative to Supermemory ($20/month)
+
+A transparent LLM proxy that automatically enriches your conversations with relevant memories from past interactions. Built with **Python/FastAPI** + **Graphiti MCP** + **Neo4j**.
+
+## ✨ Why This Exists
+
+Instead of paying $20/month for Supermemory, get **the same features (+ more)** for **$0** with full control over your data.
 
 ## 🎯 What It Does
 
-This proxy sits between your LLM client (like Msty) and OpenAI, automatically:
-
-1. **Intercepts** chat requests from your client
-2. **Searches** your knowledge graph for relevant context (entities, facts, relationships)
-3. **Enriches** the prompt with top-ranked memories
-4. **Forwards** the enhanced request to OpenAI
-5. **Streams** the response back to your client
-
-**Result:** Your LLM conversations are now context-aware, pulling from your personal knowledge base automatically.
-
-## ✨ Features (MVP v1.0)
-
-- ✅ OpenAI API-compatible endpoint (`/v1/chat/completions`)
-- ✅ Graphiti MCP integration via stdio transport
-- ✅ Smart memory search (nodes + facts)
-- ✅ Automatic context injection into system prompts
-- ✅ **Streaming response support** (Server-Sent Events)
-- ✅ Graceful degradation (works even if memory fails)
-- ✅ Structured JSON logging
-- ✅ Health check endpoint
-- ✅ Environment-based configuration
-
-## 🏗️ Architecture
-
 ```
-Msty (or any OpenAI client)
-        ↓
-[Memory Orchestrator Proxy] :3000
-        ↓
-        ├─→ Graphiti MCP (stdio)
-        │   ├─→ search_nodes(query, limit)
-        │   ├─→ search_facts(query, limit)
-        │   └─→ Neo4j Knowledge Graph
-        ↓
-OpenAI API (gpt-4-turbo / gpt-4o)
-        ↓
-Response → Back to Client
+Your App → Memory Router Proxy → LLM Provider
+              ↓
+         Graphiti + Neo4j
+         (Your Memory)
 ```
 
-## 📦 Prerequisites
+**Automatic workflow:**
+1. Intercepts LLM requests
+2. Searches your knowledge graph for relevant context
+3. Enriches prompts with memories
+4. Forwards to LLM (OpenAI, Anthropic, etc.)
+5. Stores new memories asynchronously
 
-Before running this proxy, ensure you have:
-
-1. **Node.js** >= 18.x installed
-2. **Graphiti MCP server** installed (`@getzep/mcp-server-graphiti`)
-3. **Neo4j** database running locally (via Graphiti)
-4. **OpenAI API key** with access to GPT-4
-
-### Verify Graphiti Installation
-
-```bash
-# Test that Graphiti MCP is accessible
-npx @getzep/mcp-server-graphiti --help
-```
-
-If this fails, install Graphiti first:
-```bash
-npm install -g @getzep/mcp-server-graphiti
-```
+**Zero code changes required** - Just change your base URL!
 
 ## 🚀 Quick Start
 
-### 1. Clone and Install
-
 ```bash
-git clone <your-repo-url>
-cd proxy-orchestrator
-npm install
-```
+cd python-proxy
 
-### 2. Configure Environment
+# Install
+pip install -r requirements.txt
 
-```bash
+# Configure
 cp .env.example .env
+# Edit .env with your settings
+
+# Run
+python main.py
 ```
 
-Edit `.env` and add your credentials:
+**Full documentation:** See [`python-proxy/README.md`](python-proxy/README.md)
 
+## 📚 Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [**README.md**](python-proxy/README.md) | Complete overview & features |
+| [**USAGE_GUIDE.md**](python-proxy/USAGE_GUIDE.md) | Implementation guide (Python, TypeScript, cURL, Msty) |
+| [**MCP_SETUP_GUIDE.md**](python-proxy/MCP_SETUP_GUIDE.md) | Setup Graphiti MCP + Neo4j |
+| [**COMPARISON.md**](COMPARISON.md) | vs Supermemory feature comparison |
+
+## 🏆 Feature Comparison
+
+| Feature | Supermemory | This Proxy |
+|---------|-------------|------------|
+| **Memory Management** | ✅ Vector | ✅ **Graph** 🏆 |
+| **Conversation Tracking** | ✅ | ✅ |
+| **Intelligent Chunking** | ✅ | ✅ |
+| **Token Optimization** | ✅ | ✅ |
+| **Diagnostic Headers** | 7 | **10** 🏆 |
+| **Entity Extraction** | ❌ | ✅ 🏆 |
+| **Self-Hosted** | ❌ | ✅ 🏆 |
+| **Cost/Year** | $240 | **$0** 🏆 |
+
+**Full comparison:** [COMPARISON.md](COMPARISON.md)
+
+## 💡 Use Cases
+
+### With Msty Studio
+
+1. Add custom provider in Msty:
+   - **Base URL**: `http://localhost:8000/v1`
+   - **API Key**: Your actual LLM provider key
+2. Chat normally - memory is automatic!
+
+### In Your App
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_KEY",
+    base_url="http://localhost:8000/v1",
+    default_headers={"X-User-Id": "alice"}
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+**More examples:** [USAGE_GUIDE.md](python-proxy/USAGE_GUIDE.md)
+
+## 🎁 What You Get
+
+✅ **Feature parity** with Supermemory $20/month tier
+✅ **Superior memory** (Graph DB > Vector search)
+✅ **$0 cost** (self-hosted forever)
+✅ **100% privacy** (your data, your infrastructure)
+✅ **Full control** (open source, customize anything)
+✅ **10 diagnostic headers** (vs 7 from Supermemory)
+✅ **Entity extraction** (Graphiti builds knowledge graph)
+✅ **Relationship tracking** (Neo4j graph queries)
+
+## 📦 Project Structure
+
+```
+proxy-orchestrator/
+├── python-proxy/              # Main implementation
+│   ├── main.py               # FastAPI server
+│   ├── modules/
+│   │   ├── router.py         # Memory routing logic
+│   │   ├── token_counter.py  # Token counting
+│   │   └── chunking.py       # Intelligent chunking
+│   ├── models/               # Pydantic models
+│   ├── utils/                # Logger, metrics
+│   ├── requirements.txt      # Python dependencies
+│   ├── .env.example          # Configuration template
+│   ├── README.md             # Full documentation
+│   ├── USAGE_GUIDE.md        # Implementation guide
+│   └── MCP_SETUP_GUIDE.md    # Graphiti setup
+└── COMPARISON.md             # vs Supermemory comparison
+```
+
+## 🛠️ Tech Stack
+
+- **Python 3.9+** + FastAPI
+- **Graphiti** - Knowledge graph memory
+- **Neo4j** - Graph database
+- **tiktoken** - Token counting
+- **OpenAI/Anthropic/etc** - LLM providers
+
+## 🔧 Configuration
+
+**Minimal `.env`:**
 ```bash
-# Required
-OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+# Server
+PORT=8000
 
-# Optional (defaults shown)
-OPENAI_MODEL=gpt-4-turbo-preview
-GRAPHITI_MCP_COMMAND=npx @getzep/mcp-server-graphiti
-PROXY_PORT=3000
-LOG_LEVEL=info
-MEMORY_SEARCH_LIMIT=5
+# MCP Endpoints
+MCP_SEARCH_ENDPOINT=http://localhost:5000/mcp/search
+MCP_STORE_ENDPOINT=http://localhost:5000/mcp/store
+
+# Memory
 MEMORY_ENABLED=true
+MEMORY_MAX_CONTEXT_TOKENS=2000
 ```
 
-**Note:** If your Graphiti MCP requires Neo4j credentials, add them to your environment or Graphiti's config file.
+**Full config:** See [python-proxy/.env.example](python-proxy/.env.example)
 
-### 3. Run the Proxy
+## 📊 Diagnostic Headers
 
-```bash
-# Development mode (auto-reload)
-npm run dev
+Every response includes detailed metrics:
 
-# Production mode
-npm start
+```http
+X-Memory-Conversation-Id: 550e8400-e29b-41d4-a716-446655440000
+X-Memory-Chunks-Retrieved: 3
+X-Memory-Chunks-Created: 2
+X-Memory-Tokens-Input: 450
+X-Memory-Tokens-Output: 320
+X-Memory-Tokens-Memory: 180
+X-Memory-Tokens-Processed: 950
+X-Memory-Processing-Time-Ms: 145
 ```
 
-You should see:
+## 🎯 Next Steps
 
-```
-🚀 Memory Orchestrator Proxy running on http://localhost:3000
-📋 Available endpoints:
-  GET  /health
-  POST /v1/chat/completions (OpenAI compatible)
-```
+1. **Read the guides:**
+   - [python-proxy/README.md](python-proxy/README.md) - Overview
+   - [python-proxy/USAGE_GUIDE.md](python-proxy/USAGE_GUIDE.md) - How to use
+   - [python-proxy/MCP_SETUP_GUIDE.md](python-proxy/MCP_SETUP_GUIDE.md) - Setup Graphiti
 
-### 4. Test the Health Endpoint
+2. **Setup infrastructure:**
+   - Install Neo4j (Docker recommended)
+   - Setup Graphiti MCP server
+   - Configure Memory Router Proxy
 
-```bash
-curl http://localhost:3000/health
-```
+3. **Start using:**
+   - Point Msty Studio to `http://localhost:8000/v1`
+   - Or integrate via OpenAI SDK
 
-Expected response:
-```json
-{
-  "status": "ok",
-  "service": "memory-orchestrator-proxy",
-  "version": "1.0.0",
-  "memory": {
-    "enabled": true,
-    "searchLimit": 5
-  }
-}
-```
+## 🙏 Credits
 
-## 🔧 Configure Msty (or Your LLM Client)
-
-### Msty Configuration
-
-1. Open Msty settings
-2. Navigate to **LLM Provider** settings
-3. Add a **Custom OpenAI Provider**:
-   - **Base URL:** `http://localhost:3000/v1`
-   - **API Key:** Your actual OpenAI API key (proxy will forward it)
-   - **Model:** `gpt-4-turbo-preview` (or your preferred model)
-
-4. Save and test with a message
-
-### Testing with curl
-
-```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4-turbo-preview",
-    "messages": [
-      {"role": "user", "content": "What companies have I applied to recently?"}
-    ],
-    "stream": false
-  }'
-```
-
-**With streaming:**
-
-```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4-turbo-preview",
-    "messages": [
-      {"role": "user", "content": "Tell me about my TikTok campaigns"}
-    ],
-    "stream": true
-  }'
-```
-
-## 🧪 How Memory Enrichment Works
-
-### Example Flow
-
-**User Query:** "What's my ROAS for TikTok campaigns?"
-
-**Behind the Scenes:**
-
-1. Proxy receives request from Msty
-2. Extracts query: `"What's my ROAS for TikTok campaigns?"`
-3. Searches Graphiti:
-   - `search_nodes("TikTok ROAS campaigns")` → finds entities
-   - `search_facts("TikTok ROAS campaigns")` → finds facts
-4. Top 5 results ranked by relevance:
-   ```
-   - "Managed TikTok campaigns at $15K/day achieving 3.2 ROAS"
-   - "Q4 2024: scaled to 700K monthly revenue"
-   - "TikTok conversion rate improved to 4.8%"
-   ```
-5. Injects into system prompt:
-   ```
-   You are a helpful AI assistant with access to the user's personal knowledge graph.
-
-   ---
-   Relevant memories from your knowledge graph:
-
-   1. TikTok Campaign Performance (relevance: 0.95)
-      Managed TikTok campaigns at $15K/day achieving 3.2 ROAS
-
-   2. Revenue Milestone (relevance: 0.87)
-      Q4 2024: scaled to 700K monthly revenue
-   ---
-   ```
-6. Sends enriched request to OpenAI
-7. Streams response back to Msty
-
-**User sees:** A context-aware answer referencing their actual campaign data!
-
-## 📊 Logging
-
-Logs are output to console in structured format:
-
-```
-2025-11-05 12:34:56 [info] 🚀 Memory Orchestrator Proxy running on http://localhost:3000
-2025-11-05 12:35:02 [info] Received chat completion request
-  {
-    "messageCount": 1,
-    "stream": true,
-    "model": "gpt-4-turbo-preview"
-  }
-2025-11-05 12:35:03 [info] Found 3 relevant memories
-  {
-    "nodes": 2,
-    "facts": 1
-  }
-2025-11-05 12:35:05 [info] Streaming response completed
-  {
-    "totalTime": 2847,
-    "memoriesUsed": 3
-  }
-```
-
-Adjust log verbosity via `LOG_LEVEL` env var: `error | warn | info | debug`
-
-## 🛠️ Troubleshooting
-
-### Proxy won't start
-
-**Error:** `OPENAI_API_KEY is required`
-- **Solution:** Check your `.env` file exists and has the API key
-
-**Error:** `Cannot find module @modelcontextprotocol/sdk`
-- **Solution:** Run `npm install`
-
-### Memory enrichment not working
-
-**Check logs for:**
-```
-Failed to connect to Graphiti MCP server
-```
-
-**Solutions:**
-1. Verify Graphiti is installed: `npx @getzep/mcp-server-graphiti --help`
-2. Check Neo4j is running: `neo4j status` (if applicable)
-3. Try running Graphiti manually to see error messages
-4. Set `MEMORY_ENABLED=false` to disable memory and use plain OpenAI
-
-### Msty can't connect
-
-**Error:** Connection refused
-- **Solution:** Ensure proxy is running on `localhost:3000`
-- Check firewall isn't blocking the port
-
-**Error:** Authentication failed
-- **Solution:** Verify you're passing your real OpenAI API key to Msty, not a dummy key
-
-### No memories returned (even though Neo4j has data)
-
-**Check:**
-1. Does your query match data in Neo4j? Try a broader search
-2. Is `MEMORY_SEARCH_LIMIT` too low? Increase it in `.env`
-3. Check logs for "Found X relevant memories" - if 0, your graph might be empty for that topic
-
-## 🔮 Roadmap
-
-### V2 (Coming Soon)
-- ✅ Memory persistence (`add_episode` after each conversation)
-- ✅ Advanced relevance ranking algorithms
-- ✅ Namespace support (separate contexts for job_search, ai_learning, marketing)
-- ✅ Rate limiting and retry logic for OpenAI
-- ✅ Metrics endpoint (`/metrics`)
-
-### V3 (Future)
-- ✅ Multi-MCP orchestration (Graphiti + other MCP servers)
-- ✅ Web UI for knowledge graph visualization
-- ✅ Analytics dashboard (costs, token usage, query patterns)
-- ✅ Obsidian export for memories
-- ✅ Memory decay/cleanup (forget old irrelevant data)
-
-## 🤝 Contributing
-
-This is a personal project built for a specific workflow, but contributions are welcome!
+- **Graphiti** - Graph-based memory layer
+- **Supermemory** - Inspiration for the Memory Router pattern
+- **MCP** - Model Context Protocol standard
 
 ## 📄 License
 
 MIT
 
-## 💡 Use Cases
-
-### Job Search Assistant
-```
-User: "Which companies should I follow up with?"
-Proxy: [Searches: application_status, response_times, company_notes]
-Response: Context-aware follow-up recommendations
-```
-
-### Learning Path
-```
-User: "What should I study next about MCP?"
-Proxy: [Searches: topics_studied, knowledge_gaps, interests]
-Response: Personalized learning suggestions
-```
-
-### Campaign Analysis
-```
-User: "How does my TikTok ROAS trend?"
-Proxy: [Searches: campaign_metrics, roas_history, budget_changes]
-Response: Historical analysis with your actual data
-```
-
-## 🙏 Acknowledgments
-
-- [Graphiti](https://github.com/getzep/graphiti) - Knowledge graph memory layer
-- [Model Context Protocol](https://modelcontextprotocol.io) - Standardized LLM-tool communication
-- [OpenAI](https://openai.com) - LLM API
-
 ---
 
-**Built with ❤️ for personal AI that actually remembers you**
+**Built to prove you don't need $240/year for good memory.** 🧠💰
+
+Get started: [`python-proxy/README.md`](python-proxy/README.md)
