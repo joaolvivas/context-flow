@@ -1,4 +1,4 @@
-# MemoryStack
+# 🧠 MemoryStack
 
 <div align="center">
 
@@ -375,7 +375,32 @@ We love contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## 📖 Use Cases
 
-### 1. Personal AI Assistant (Msty Studio)
+### 1. 💻 AI Coding Assistants (Cursor, VS Code, Windsurf)
+
+**The killer use case**: Give your IDE's AI perfect memory of your codebase and coding style.
+
+```
+Day 1:
+You: "Create validation using Zod. We prefer functional components."
+Cursor: Creates with Zod ✓
+
+Day 2 (new session):
+You: "Create another validation"
+Cursor: Automatically uses Zod + functional style ✓
+```
+
+**What it remembers:**
+- Your coding patterns and style
+- Tech stack decisions (React, TypeScript, Tailwind, etc.)
+- Architecture patterns (folder structure, naming conventions)
+- Library preferences (Zod vs Yup, TanStack Query vs SWR)
+- Past implementations and explanations
+
+**Savings**: $140/year per developer (77% token reduction)
+
+**[Setup Guide for Cursor →](examples/integrations/cursor_setup.md)**
+
+### 2. 🤖 Personal AI Assistant (Msty Studio)
 ```
 You: "I'm learning React and working on an e-commerce project"
 [Later, different chat]
@@ -383,17 +408,14 @@ You: "What am I working on?"
 AI: "You're building an e-commerce project using React"
 ```
 
-### 2. Customer Support Chatbot
+**[Setup Guide for Msty →](examples/integrations/msty_setup.md)**
+
+### 3. 🎧 Customer Support Chatbot
 - Remembers customer preferences, past issues, account details
 - 77% token savings = dramatically lower operational costs
 - Better customer experience with persistent memory
 
-### 3. Development Assistant
-- Remembers your coding style, project structure, dependencies
-- Provides context-aware suggestions
-- Works across multiple IDE sessions
-
-### 4. Research Assistant
+### 4. 🔬 Research Assistant
 - Accumulates knowledge from all conversations
 - Connects related topics automatically (with graph backend)
 - Retrieves relevant past discussions
