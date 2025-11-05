@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # Redis - Tier 1 & 2 storage
+  redis:
+    image: redis:7-alpine
+    container_name: memorystack-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Graphiti HTTP Bridge (optional - only if using Graphiti backend)
+  graphiti-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge
+    container_name: memorystack-graphiti-bridge
+    ports:
+      - "5000:5000"
+    environment:
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GROUP_ID=${GROUP_ID:-memorystack}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - graphiti  # Only start if using --profile graphiti
+
+  # MemoryStack Proxy
+  memorystack:
+    build: .
+    container_name: memorystack-proxy
+    ports:
+      - "8000:8000"
+    environment:
+      # Server
+      - PORT=8000
+      - DEBUG=false
+
+      # OpenAI API (required for Tier 2)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # Memory Backend
+      - MEMORY_BACKEND=${MEMORY_BACKEND:-graphiti}
+      - MEMORY_ENABLED=true
+
+      # Redis (Tier 1 & 2)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKING_MEMORY_TURNS=10
+      - WORKING_MEMORY_TTL=1800
+      - SESSION_MEMORY_MODEL=gpt-4o-mini
+      - SESSION_MEMORY_TTL=86400
+
+      # Graphiti (if using graphiti backend)
+      - GRAPHITI_ENABLED=true
+      - GRAPHITI_URL=http://graphiti-bridge:5000
+      - MCP_SEARCH_ENDPOINT=http://graphiti-bridge:5000/mcp/search
+      - MCP_STORE_ENDPOINT=http://graphiti-bridge:5000/mcp/store
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+
+      # Supermemory (if using supermemory backend)
+      - SUPERMEMORY_BASE_URL=${SUPERMEMORY_BASE_URL:-https://api.supermemory.ai}
+      - SUPERMEMORY_API_KEY=${SUPERMEMORY_API_KEY}
+
+      # Features
+      - CACHE_ENABLED=true
+      - PROFILE_ENABLED=true
+      - PROGRESSIVE_INJECTION=true
+
+      # LLM Provider (default)
+      - DEFAULT_PROVIDER_URL=${DEFAULT_PROVIDER_URL:-https://api.openai.com/v1}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-gpt-4o-mini}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    volumes:
+      - profiles_data:/app/profiles
+
+volumes:
+  redis_data:
+    driver: local
+  profiles_data:
+    driver: local
+
+networks:
+  default:
+    name: memorystack-network
