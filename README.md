@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Cut your LLM costs by 77%. Give your AI perfect memory. In 30 seconds.**
+**Invisible AI memory that saves you 77% on LLM costs. No MCP calls, no manual saves. Just set your endpoint and forget it.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -13,7 +13,7 @@
 
 </div>
 
-> **🔌 Universal Compatibility:** Works with **any client** that supports custom API endpoints - **Cursor**, **VS Code**, **Aider**, **Claude Code**, **Msty**, or any OpenAI-compatible tool. Battle-tested in production.
+> **🪄 Invisible Memory:** If your tool lets you customize the API endpoint, MemoryStack gives it **automatic memory** working silently in the background. No manual MCP server calls. No save_episode() or delete_episode(). Just intelligence and massive token savings.
 
 ---
 
@@ -23,8 +23,9 @@ Your LLM is **expensive** and **forgets everything**:
 
 - 💸 Sending full context every query = **burning money**
 - 🧠 No memory between conversations = **bad UX**
-- 🔧 Building your own memory system = **weeks of work**
+- 🔧 MCP memory servers = **manual save_episode()/delete_episode() calls everywhere**
 - 🔒 Supermemory/similar services = **$240/year + vendor lock-in**
+- ⏰ Building your own automatic memory = **weeks of work**
 
 ## The Solution
 
@@ -42,11 +43,13 @@ Your IDE/CLI/App → MemoryStack → OpenAI/Anthropic/etc
 
 ### What It Does
 
-1. **Remembers** everything automatically across conversations
-2. **Injects** only relevant context (77% token reduction!)
-3. **Routes** intelligently across 3 memory tiers
-4. **Works** with ANY OpenAI-compatible client (IDEs, CLIs, SDKs)
-5. **Plugs in** with just a URL change - works with your existing infrastructure
+1. **Invisible Memory** - Saves & retrieves automatically, no manual MCP calls needed
+2. **Smart Injection** - Only adds relevant context (77% token reduction!)
+3. **Intelligent Routing** - 3-tier architecture serves the right data at the right time
+4. **Universal** - Works with ANY OpenAI-compatible client (IDEs, CLIs, SDKs)
+5. **One-Line Setup** - Change the endpoint URL, get automatic memory forever
+
+**The magic:** Set `base_url="http://localhost:8000/v1"` once. Memory happens invisibly in the background. No code changes. No manual saves. Just works.
 
 ### Real Results
 
@@ -84,7 +87,65 @@ SAVED: $2,888/month
 
 ---
 
+## 🆚 MemoryStack vs Traditional MCP Memory
+
+<table>
+<tr>
+<th>Traditional MCP Memory Server</th>
+<th>🧠 MemoryStack (Invisible)</th>
+</tr>
+<tr>
+<td>
+
+**Manual memory management:**
+```python
+# You have to explicitly call MCP tools
+memory.save_episode(content="...")
+memory.delete_episode(id="...")
+memory.search(query="...")
+
+# Every. Single. Time.
+```
+
+❌ Manual save/delete calls<br>
+❌ Code littered with MCP calls<br>
+❌ Easy to forget to save<br>
+❌ Have to manage episode IDs<br>
+
+</td>
+<td>
+
+**Automatic invisible memory:**
+```python
+# Just change the endpoint
+client = OpenAI(
+    base_url="http://localhost:8000/v1"
+)
+
+# That's it. Memory happens automatically!
+```
+
+✅ **Zero manual calls**<br>
+✅ **Works with existing code**<br>
+✅ **Never forget to save**<br>
+✅ **Automatic episode management**<br>
+
+</td>
+</tr>
+</table>
+
+**The difference:** With MemoryStack, memory is **infrastructure, not code**. Set the endpoint once, forget about it forever.
+
+---
+
 ## ✨ Key Features
+
+### 🪄 **Invisible Memory** (Zero Manual Calls)
+- **Automatic saves** - Every conversation stored in background
+- **Smart retrieval** - Relevant context injected automatically
+- **No code changes** - Works with your existing OpenAI/Anthropic code
+- **Episode-free** - No save_episode(), delete_episode(), or ID management
+- **Transparent** - See exactly what's happening via diagnostic headers
 
 ### 🧠 **3-Tier Memory Architecture**
 - **Tier 1**: Working memory (Redis) - Last 10-20 turns, <1ms, zero cost
@@ -168,23 +229,29 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="your-openai-key",
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:8000/v1",  # 👈 Only change needed!
     default_headers={"X-User-Id": "alice"}
 )
 
-# First conversation
+# First conversation - NO manual save needed!
 response = client.chat.completions.create(
     model="gpt-4o-mini",
     messages=[{"role": "user", "content": "My name is Alice and I love Python"}]
 )
+# ✨ Memory saved automatically in background
 
-# Later conversation (different chat, remembers!)
+# Later conversation (different chat) - NO manual retrieve needed!
 response = client.chat.completions.create(
     model="gpt-4o-mini",
     messages=[{"role": "user", "content": "What's my name and what do I love?"}]
 )
+# ✨ Memory retrieved automatically
 # Returns: "Your name is Alice and you love Python!" 🎉
+
+# That's it! No save_episode(), no delete_episode(), no manual memory management.
 ```
+
+**Zero code changes. Zero manual calls. Invisible memory. 77% cost savings.**
 
 [See more examples →](examples/)
 
