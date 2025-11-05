@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop all MemoryStack services
+# Stop all ContextFlow services
 
 echo "🛑 Stopping services..."
 

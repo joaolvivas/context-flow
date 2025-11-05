@@ -1,8 +1,8 @@
-# Contributing to MemoryStack
+# Contributing to ContextFlow
 
-First off, thank you for considering contributing to MemoryStack! 🎉
+First off, thank you for considering contributing to ContextFlow! 🎉
 
-It's people like you that make MemoryStack such a great tool. We welcome contributions from everyone, whether it's:
+It's people like you that make ContextFlow such a great tool. We welcome contributions from everyone, whether it's:
 
 - 🐛 Bug reports
 - 💡 Feature requests
@@ -25,8 +25,8 @@ It's people like you that make MemoryStack such a great tool. We welcome contrib
 1. **Fork the repository**
    ```bash
    # Click "Fork" on GitHub, then:
-   git clone https://github.com/YOUR_USERNAME/memorystack
-   cd memorystack
+   git clone https://github.com/YOUR_USERNAME/contextflow
+   cd contextflow
    ```
 
 2. **Set up development environment**
@@ -176,7 +176,7 @@ Create adapters for new memory backends:
 - Milvus
 - Your custom backend
 
-See `src/memorystack/backends/base.py` for the interface.
+See `src/contextflow/backends/base.py` for the interface.
 
 ### 🌍 **Language Support**
 
@@ -188,7 +188,7 @@ Add query patterns for new languages:
 - Japanese
 - Your language
 
-See `src/memorystack/memory/intelligent_router.py`.
+See `src/contextflow/memory/intelligent_router.py`.
 
 ### 📝 **Documentation**
 
@@ -216,7 +216,7 @@ Check our [roadmap](README.md#-roadmap) for planned features or suggest new ones
 1. **Check existing issues** to avoid duplicates
 2. **Try the latest version** - bug might be fixed
 3. **Gather information**:
-   - MemoryStack version
+   - ContextFlow version
    - Python version
    - Operating system
    - Backend being used
@@ -230,7 +230,7 @@ A clear description of what the bug is.
 
 **To Reproduce**
 Steps to reproduce:
-1. Start MemoryStack with...
+1. Start ContextFlow with...
 2. Send request with...
 3. See error
 
@@ -241,7 +241,7 @@ What you expected to happen.
 What actually happened.
 
 **Environment**
-- MemoryStack version: X.Y.Z
+- ContextFlow version: X.Y.Z
 - Python version: 3.X.Y
 - OS: Ubuntu 22.04 / macOS 14 / Windows 11
 - Backend: Graphiti / Supermemory / etc.
@@ -319,8 +319,8 @@ Instances of abusive behavior may be reported to the project maintainers. All co
 
 ## Questions?
 
-- 💬 [GitHub Discussions](https://github.com/joaolvivas/memorystack/discussions)
-- 🐛 [GitHub Issues](https://github.com/joaolvivas/memorystack/issues)
+- 💬 [GitHub Discussions](https://github.com/joaolvivas/contextflow/discussions)
+- 🐛 [GitHub Issues](https://github.com/joaolvivas/contextflow/issues)
 - 📧 Email: [your-email]
 
 ## Recognition
@@ -330,4 +330,4 @@ Contributors will be recognized in:
 - CHANGELOG.md
 - GitHub contributors page
 
-Thank you for making MemoryStack better! 🚀🧠
+Thank you for making ContextFlow better! 🚀⚡

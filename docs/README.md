@@ -1,12 +1,12 @@
-# MemoryStack Documentation
+# ContextFlow Documentation
 
-Complete documentation for MemoryStack - The Open-Source Intelligence Layer for LLM Memory.
+Complete documentation for ContextFlow - The Open-Source Intelligence Layer for LLM Memory.
 
 ---
 
 ## 🚀 Quick Links
 
-- **[Getting Started](#getting-started)** - New to MemoryStack? Start here
+- **[Getting Started](#getting-started)** - New to ContextFlow? Start here
 - **[Installation](#installation)** - How to install and configure
 - **[Architecture](#architecture)** - How it works under the hood
 - **[API Reference](#api-reference)** - Complete API documentation
@@ -18,11 +18,11 @@ Complete documentation for MemoryStack - The Open-Source Intelligence Layer for 
 
 ## Getting Started
 
-### What is MemoryStack?
+### What is ContextFlow?
 
-MemoryStack is an intelligent proxy that sits between your application and LLM provider, automatically managing memory across conversations. It reduces token costs by 77% while giving your AI perfect recall.
+ContextFlow is an intelligent proxy that sits between your application and LLM provider, automatically managing memory across conversations. It reduces token costs by 77% while giving your AI perfect recall.
 
-### Why Use MemoryStack?
+### Why Use ContextFlow?
 
 - **77% cost reduction** through progressive context injection
 - **Perfect memory** across all conversations
@@ -34,8 +34,8 @@ MemoryStack is an intelligent proxy that sits between your application and LLM p
 
 ```bash
 # Clone and start
-git clone https://github.com/joaolvivas/memorystack
-cd memorystack
+git clone https://github.com/joaolvivas/contextflow
+cd contextflow
 docker-compose up -d
 
 # Test
@@ -78,14 +78,14 @@ docker-compose --profile graphiti up -d
 
 ```bash
 # 1. Clone
-git clone https://github.com/joaolvivas/memorystack
-cd memorystack
+git clone https://github.com/joaolvivas/contextflow
+cd contextflow
 
 # 2. Run installer
 ./install.sh
 
 # 3. Start
-python -m uvicorn src.memorystack.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn src.contextflow.main:app --host 0.0.0.0 --port 8000
 ```
 
 [Detailed Installation Guide →](../README.md#-try-it-now-30-seconds)
@@ -96,7 +96,7 @@ python -m uvicorn src.memorystack.main:app --host 0.0.0.0 --port 8000
 
 ### 3-Tier Memory System
 
-MemoryStack uses a hierarchical memory architecture inspired by human memory:
+ContextFlow uses a hierarchical memory architecture inspired by human memory:
 
 ```
 Tier 1: Working Memory (Redis)
@@ -120,7 +120,7 @@ Tier 3: Long-term Memory (Your Choice)
 
 ### Progressive Injection
 
-Instead of injecting all context for every query, MemoryStack intelligently selects the right amount:
+Instead of injecting all context for every query, ContextFlow intelligently selects the right amount:
 
 | Query Type | Example | Tiers Used | Tokens | Frequency |
 |------------|---------|------------|--------|-----------|
@@ -225,7 +225,7 @@ Health check endpoint.
 
 ## Backends
 
-MemoryStack works with any memory backend through a pluggable adapter system.
+ContextFlow works with any memory backend through a pluggable adapter system.
 
 ### Supported Backends
 
@@ -247,7 +247,7 @@ MemoryStack works with any memory backend through a pluggable adapter system.
 
 #### Custom Backend
 - Implement your own adapter
-- See: `src/memorystack/backends/base.py`
+- See: `src/contextflow/backends/base.py`
 
 [Backend Comparison →](../README.md#-backend-agnostic)
 
@@ -323,7 +323,7 @@ curl -X POST http://localhost:8000/chat/completions \
 
 **Solutions**:
 1. Check Redis is running: `redis-cli ping`
-2. Check logs: `docker logs memorystack-proxy`
+2. Check logs: `docker logs contextflow-proxy`
 3. Verify conversation IDs are stable (not random)
 4. Check `X-Memory-*` headers in responses
 
@@ -431,16 +431,16 @@ We welcome contributions! See:
 
 ## Support
 
-- 💬 [GitHub Discussions](https://github.com/joaolvivas/memorystack/discussions) - Ask questions
-- 🐛 [GitHub Issues](https://github.com/joaolvivas/memorystack/issues) - Report bugs
+- 💬 [GitHub Discussions](https://github.com/joaolvivas/contextflow/discussions) - Ask questions
+- 🐛 [GitHub Issues](https://github.com/joaolvivas/contextflow/issues) - Report bugs
 - 📖 [Documentation](.) - You are here!
-- ⭐ [Star on GitHub](https://github.com/joaolvivas/memorystack) - Show support
+- ⭐ [Star on GitHub](https://github.com/joaolvivas/contextflow) - Show support
 
 ---
 
 ## License
 
-MemoryStack is open source under the [MIT License](../LICENSE).
+ContextFlow is open source under the [MIT License](../LICENSE).
 
 **You're free to:**
 - ✅ Use commercially
@@ -452,8 +452,8 @@ MemoryStack is open source under the [MIT License](../LICENSE).
 
 <div align="center">
 
-**Built to prove you don't need $240/year for good memory.** 🧠💰
+**Built to prove you don't need $240/year for good memory.** ⚡💰
 
-[Get Started](../README.md#-try-it-now-30-seconds) • [Examples](../examples/) • [GitHub](https://github.com/joaolvivas/memorystack)
+[Get Started](../README.md#-try-it-now-30-seconds) • [Examples](../examples/) • [GitHub](https://github.com/joaolvivas/contextflow)
 
 </div>

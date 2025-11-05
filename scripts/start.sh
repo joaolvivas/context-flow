@@ -1,9 +1,9 @@
 #!/bin/bash
-# Startup script for MemoryStack + Graphiti HTTP Bridge
+# Startup script for ContextFlow + Graphiti HTTP Bridge
 
 set -e
 
-echo "🚀 Starting MemoryStack with Graphiti Memory..."
+echo "🚀 Starting ContextFlow with Graphiti Memory..."
 echo ""
 
 # Colors
@@ -35,7 +35,7 @@ start_bridge() {
         pip install fastapi uvicorn neo4j python-dotenv graphiti-core pydantic
     fi
     
-    python src/memorystack/bridges/graphiti_http_bridge.py &
+    python src/contextflow/bridges/graphiti_http_bridge.py &
     BRIDGE_PID=$!
     echo -e "${GREEN}✓ HTTP Bridge started (PID: $BRIDGE_PID)${NC}"
 }
@@ -55,7 +55,7 @@ start_proxy() {
         source venv/bin/activate
     fi
 
-    python -m uvicorn src.memorystack.main:app --host 0.0.0.0 --port 8000 &
+    python -m uvicorn src.contextflow.main:app --host 0.0.0.0 --port 8000 &
     PROXY_PID=$!
     echo -e "${GREEN}✓ MemoryStack started (PID: $PROXY_PID)${NC}"
 }

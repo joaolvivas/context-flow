@@ -231,8 +231,8 @@ cd /Users/joaolucas/graphiti/mcp_server
 python http_wrapper.py  # Port 5001
 
 # Memory Proxy (Main service)
-cd /path/to/memorystack
-python -m uvicorn src.memorystack.main:app --host 0.0.0.0 --port 8000
+cd /path/to/contextflow
+python -m uvicorn src.contextflow.main:app --host 0.0.0.0 --port 8000
 ```
 
 ### Environment Variables
@@ -264,7 +264,7 @@ NEO4J_PASSWORD=...
 
 ### Core System Files
 ```
-src/memorystack/
+src/contextflow/
 ├── main.py                              # Entry point, dual endpoints
 ├── config.py                            # Configuration management
 ├── modules/

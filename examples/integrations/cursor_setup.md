@@ -1,12 +1,12 @@
-# MemoryStack Integration with Cursor IDE
+# ContextFlow Integration with Cursor IDE
 
 Give your Cursor AI assistant perfect memory across all coding sessions. Remember your coding style, tech stack, architectural decisions, and project context automatically.
 
-## Why Use MemoryStack with Cursor?
+## Why Use ContextFlow with Cursor?
 
 ### The Problem
 
-**Without MemoryStack:**
+**Without ContextFlow:**
 ```
 Day 1:
 You: "Create a validation function using Zod"
@@ -17,7 +17,7 @@ You: "Create another validation"
 Cursor: Uses plain JavaScript ✗ (forgot you use Zod!)
 ```
 
-**With MemoryStack:**
+**With ContextFlow:**
 ```
 Day 1:
 You: "Create a validation function using Zod"
@@ -40,8 +40,8 @@ Cursor: Automatically uses Zod ✓ (remembers your pattern!)
 ### Cost Savings
 
 **Typical Cursor usage (100 queries/day):**
-- Without MemoryStack: ~200K tokens/day → **$0.50/day** → **$15/month**
-- With MemoryStack: ~46K tokens/day → **$0.11/day** → **$3.30/month**
+- Without ContextFlow: ~200K tokens/day → **$0.50/day** → **$15/month**
+- With ContextFlow: ~46K tokens/day → **$0.11/day** → **$3.30/month**
 
 **Saved: $11.70/month per developer ($140/year)**
 
@@ -49,12 +49,12 @@ Cursor: Automatically uses Zod ✓ (remembers your pattern!)
 
 ## Setup (5 minutes)
 
-### Step 1: Start MemoryStack
+### Step 1: Start ContextFlow
 
 ```bash
-# Clone and start MemoryStack
-git clone https://github.com/joaolvivas/memorystack
-cd memorystack
+# Clone and start ContextFlow
+git clone https://github.com/joaolvivas/contextflow
+cd contextflow
 docker-compose up -d
 
 # Verify it's running
@@ -103,11 +103,11 @@ Cursor: [Automatically uses Prisma, follows same pattern as user model!]
 
 ### Default Configuration
 
-MemoryStack works out of the box with sensible defaults. If you want to customize:
+ContextFlow works out of the box with sensible defaults. If you want to customize:
 
 ```bash
-# Edit .env in MemoryStack directory
-nano memorystack/.env
+# Edit .env in ContextFlow directory
+nano contextflow/.env
 
 # Adjust memory tiers
 WORKING_MEMORY_TURNS=10      # Recent conversation history
@@ -122,7 +122,7 @@ Want different memory for different projects?
 ```bash
 # Set project-specific user ID in Cursor
 # Unfortunately Cursor doesn't expose custom headers yet,
-# but you can use different MemoryStack instances:
+# but you can use different ContextFlow instances:
 
 # Project 1
 docker-compose -p project1 up -d
@@ -212,7 +212,7 @@ You: "For this project:
 - Prefer composition over inheritance"
 ```
 
-MemoryStack will remember and apply these across all future sessions.
+ContextFlow will remember and apply these across all future sessions.
 
 ### 2. **Review Memory Context**
 
@@ -229,7 +229,7 @@ Cursor: Lists what it remembers
 You: "We switched from Prisma to Drizzle ORM"
 ```
 
-MemoryStack updates and uses new pattern going forward.
+ContextFlow updates and uses new pattern going forward.
 
 ### 4. **Project-Specific Knowledge**
 
@@ -249,7 +249,7 @@ These become part of your project's memory.
 
 ### ❌ Cursor shows "Connection Error"
 
-**Check MemoryStack is running:**
+**Check ContextFlow is running:**
 ```bash
 curl http://localhost:8000/health
 ```
@@ -262,8 +262,8 @@ curl http://localhost:8000/health
 
 **Verify memory is enabled:**
 ```bash
-# Check MemoryStack logs
-docker logs memorystack-proxy | grep "Memory"
+# Check ContextFlow logs
+docker logs contextflow-proxy | grep "Memory"
 ```
 
 **Check diagnostic headers:**
@@ -311,7 +311,7 @@ X-Memory-Cost-Estimate: 232  # Should be ~200-400 for most queries
 
 ## Performance Expectations
 
-With MemoryStack, your Cursor sessions should:
+With ContextFlow, your Cursor sessions should:
 
 - ✅ **Remember preferences** across all sessions
 - ✅ **Respond quickly** (~100-200ms overhead)
@@ -322,7 +322,7 @@ With MemoryStack, your Cursor sessions should:
 
 ## Comparison
 
-### Without MemoryStack
+### Without ContextFlow
 
 ```
 Every session:
@@ -332,7 +332,7 @@ Every session:
 └─ 2000+ tokens per query
 ```
 
-### With MemoryStack
+### With ContextFlow
 
 ```
 First session: Teach patterns once
@@ -448,19 +448,19 @@ export async function POST(req: Request) {
 
 ## Resources
 
-- **[MemoryStack Documentation](../../docs/)** - Complete documentation
+- **[ContextFlow Documentation](../../docs/)** - Complete documentation
 - **[Python Examples](../python/)** - Programmatic usage
 - **[Troubleshooting Guide](../../docs/troubleshooting.md)** - Common issues
-- **[GitHub Issues](https://github.com/joaolvivas/memorystack/issues)** - Report problems
+- **[GitHub Issues](https://github.com/joaolvivas/contextflow/issues)** - Report problems
 
 ---
 
 ## Questions?
 
-- 💬 [GitHub Discussions](https://github.com/joaolvivas/memorystack/discussions)
-- 🐛 [Report Issues](https://github.com/joaolvivas/memorystack/issues)
+- 💬 [GitHub Discussions](https://github.com/joaolvivas/contextflow/discussions)
+- 🐛 [Report Issues](https://github.com/joaolvivas/contextflow/issues)
 - 📧 Email: [maintainer-email]
 
 ---
 
-**Enjoy coding with an AI that actually remembers!** 🧠💻✨
+**Enjoy coding with an AI that actually remembers!** ⚡💻✨

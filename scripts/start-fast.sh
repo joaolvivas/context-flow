@@ -27,7 +27,7 @@ cd "$(dirname "$0")"
 # Use uv for bridge (reuse Graphiti deps)
 cd "$(dirname "$0")/.."
 MCP_PORT=5001 uv run --directory /Users/joaolucas/graphiti/mcp_server \
-  python "$(pwd)/src/memorystack/bridges/graphiti_http_bridge.py" > bridge.log 2>&1 &
+  python "$(pwd)/src/contextflow/bridges/graphiti_http_bridge.py" > bridge.log 2>&1 &
 BRIDGE_PID=$!
 echo $BRIDGE_PID > bridge.pid
 echo -e "${GREEN}✓ HTTP Bridge started (PID: $BRIDGE_PID)${NC}"
@@ -40,7 +40,7 @@ echo -e "${BLUE}Starting MemoryStack (Port 8000)...${NC}"
 uv run --with fastapi --with uvicorn --with pydantic-settings \
   --with httpx --with requests --with tiktoken --with neo4j \
   --with slowapi --with structlog \
-  python -m uvicorn src.memorystack.main:app --host 0.0.0.0 --port 8000 > proxy.log 2>&1 &
+  python -m uvicorn src.contextflow.main:app --host 0.0.0.0 --port 8000 > proxy.log 2>&1 &
 PROXY_PID=$!
 echo $PROXY_PID > proxy.pid
 echo -e "${GREEN}✓ MemoryStack started (PID: $PROXY_PID)${NC}"

@@ -4,7 +4,7 @@ services:
   # Redis - Tier 1 & 2 storage
   redis:
     image: redis:7-alpine
-    container_name: memorystack-redis
+    container_name: contextflow-redis
     ports:
       - "6379:6379"
     volumes:
@@ -22,7 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.bridge
-    container_name: memorystack-graphiti-bridge
+    container_name: contextflow-graphiti-bridge
     ports:
       - "5000:5000"
     environment:
@@ -30,7 +30,7 @@ services:
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GROUP_ID=${GROUP_ID:-memorystack}
+      - GROUP_ID=${GROUP_ID:-contextflow}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
@@ -41,9 +41,9 @@ services:
       - graphiti  # Only start if using --profile graphiti
 
   # MemoryStack Proxy
-  memorystack:
+  contextflow:
     build: .
-    container_name: memorystack-proxy
+    container_name: contextflow-proxy
     ports:
       - "8000:8000"
     environment:
@@ -108,4 +108,4 @@ volumes:
 
 networks:
   default:
-    name: memorystack-network
+    name: contextflow-network

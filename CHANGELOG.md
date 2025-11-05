@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MemoryStack will be documented in this file.
+All notable changes to ContextFlow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🎉 Major Release: Progressive Context Injection
 
-This release represents a complete transformation of the Memory Router Proxy into **MemoryStack** - a production-ready, commercial-grade open-source memory layer for LLMs.
+This release represents a complete transformation of the Memory Router Proxy into **ContextFlow** - a production-ready, commercial-grade open-source memory layer for LLMs.
 
 ### Added
 
@@ -58,7 +58,7 @@ This release represents a complete transformation of the Memory Router Proxy int
   - Level 3 (2%): 1000 tokens, ~480ms
 
 #### Architecture
-- Reorganized codebase into `src/memorystack/` package
+- Reorganized codebase into `src/contextflow/` package
 - Separated documentation into `docs/` folder
 - Moved examples to `examples/` directory
 - Created `scripts/` for utility scripts
@@ -103,10 +103,10 @@ This release represents a complete transformation of the Memory Router Proxy int
 ### Migration Notes
 
 #### Breaking Changes
-- Repository name changed from `proxy-orchestrator` to `memorystack`
-- Main package moved from `python-proxy/` to `src/memorystack/`
+- Repository name changed from `proxy-orchestrator` to `contextflow`
+- Main package moved from `python-proxy/` to `src/contextflow/`
 - Configuration keys updated (see `.env.example`)
-- Import paths changed: `from memorystack import app`
+- Import paths changed: `from contextflow import app`
 
 #### Migration Steps
 1. Update git remote URL
@@ -156,7 +156,7 @@ We use [Semantic Versioning](https://semver.org/):
 
 ## Links
 
-- [GitHub Repository](https://github.com/joaolvivas/memorystack)
+- [GitHub Repository](https://github.com/joaolvivas/contextflow)
 - [Documentation](docs/)
 - [Contributing](CONTRIBUTING.md)
 - [License](LICENSE)
