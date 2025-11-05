@@ -11,6 +11,7 @@ New features:
 import requests
 import uuid
 import logging
+import threading
 from typing import Dict, List, Optional
 from datetime import datetime
 
@@ -404,21 +405,40 @@ def memory_route(
             metadata["tokens_processed"] = usage.get("total_tokens", 0)
 
         # Store new memory asynchronously
+        # For Graphiti: Queues episode for processing with full entity extraction
+        # Processing happens in background queue, preserving all knowledge graph features
         if not stream and memory_enabled and query:
             assistant_response = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            # Truncate very long responses to prevent token limit issues in entity extraction
+            # Graphiti context can grow large, so we limit episode content to ~1000 chars
+            max_content_length = 1000
+            if len(assistant_response) > max_content_length:
+                assistant_response = assistant_response[:max_content_length] + "... [truncated]"
+            
             memory_content = f"User: {query}\nAssistant: {assistant_response}"
 
-            chunks_created = store_memory_async(
-                memory_content,
-                user_id,
-                backend,
-                metadata={
-                    "timestamp": datetime.now().isoformat(),
-                    "model": model,
-                    "conversation_id": conversation_id
-                }
-            )
-            metadata["chunks_created"] = chunks_created
+            # Fire-and-forget storage (backend uses queue for async processing)
+            def store_in_background():
+                try:
+                    chunks = store_memory_async(
+                        memory_content,
+                        user_id,
+                        backend,
+                        metadata={
+                            "timestamp": datetime.now().isoformat(),
+                            "model": model,
+                            "conversation_id": conversation_id
+                        }
+                    )
+                    logger.info(f"Storage queued: {chunks} chunks (processing in background)")
+                except Exception as e:
+                    logger.error(f"Background storage queue failed: {e}")
+            
+            # Start background thread to queue storage (returns immediately)
+            storage_thread = threading.Thread(target=store_in_background, daemon=True)
+            storage_thread.start()
+            metadata["chunks_created"] = 0  # Processing happens async in queue
 
     except Exception as e:
         logger.error(f"Memory routing error: {e}", exc_info=True)

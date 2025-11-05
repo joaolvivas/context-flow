@@ -45,7 +45,7 @@ class GraphitiBackend(MemoryBackend):
         query: str,
         user_id: str,
         limit: int = 5,
-        timeout: float = 1.5,
+        timeout: float = 10.0,  # Increased timeout for Graphiti
         **kwargs
     ) -> List[Dict]:
         """
@@ -77,8 +77,10 @@ class GraphitiBackend(MemoryBackend):
             data = response.json()
             return data.get("results", [])
 
-        except (requests.Timeout, requests.ConnectionError, Exception):
+        except (requests.Timeout, requests.ConnectionError, Exception) as e:
             # Graceful degradation
+            import logging
+            logging.error(f"Backend search failed: {e}")
             return []
 
     def store(
@@ -116,31 +118,35 @@ class GraphitiBackend(MemoryBackend):
                         "chunk_tokens": chunk["tokens"]
                     })
 
-                    requests.post(
+                    resp = requests.post(
                         self.store_endpoint,
                         json={
                             "content": chunk["content"],
                             "user_id": user_id,
                             "metadata": chunk_metadata
                         },
-                        timeout=0.5
+                        timeout=30.0  # Increased timeout for Graphiti processing
                     )
-                    chunks_created += 1
+                    if resp.status_code == 200:
+                        chunks_created += 1
             else:
                 # Store as single memory
-                requests.post(
+                resp = requests.post(
                     self.store_endpoint,
                     json={
                         "content": content,
                         "user_id": user_id,
                         "metadata": metadata or {}
                     },
-                    timeout=0.5
+                    timeout=30.0  # Increased timeout for Graphiti processing
                 )
-                chunks_created = 1
+                if resp.status_code == 200:
+                    chunks_created = 1
 
-        except Exception:
-            # Fire-and-forget - ignore errors
+        except Exception as e:
+            # Log errors but don't fail
+            import logging
+            logging.error(f"Backend store failed: {e}")
             pass
 
         return chunks_created

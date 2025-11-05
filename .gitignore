@@ -45,3 +45,4 @@ htmlcov/
 
 # Node (legacy)
 node_modules/
+venv_bridge/

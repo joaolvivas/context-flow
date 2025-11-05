@@ -18,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from config import settings
 from models.request_models import ChatCompletionRequest
 from models.response_models import HealthResponse, ErrorResponse
-from modules.router import memory_route
+from modules.router_v3 import memory_route_v3
 from utils.logger import logger
 from utils.metrics import metrics_tracker
 
@@ -86,9 +86,7 @@ async def get_metrics(request: Request):
     return stats
 
 
-@app.post("/v1/chat/completions")
-@limiter.limit(f"{settings.rate_limit_per_minute}/minute")
-async def chat_completions(
+async def handle_chat_completion(
     request: Request,
     body: ChatCompletionRequest,
     authorization: Optional[str] = Header(None),
@@ -96,7 +94,7 @@ async def chat_completions(
     x_provider_url: Optional[str] = Header(None, alias="X-Provider-URL"),
 ):
     """
-    Main endpoint - OpenAI-compatible with automatic memory.
+    Shared handler for chat completion requests.
 
     Headers:
         Authorization: Bearer {api_key} - LLM provider API key
@@ -149,9 +147,12 @@ async def chat_completions(
                 "model": model
             }
 
-        # Route through enhanced memory proxy
-        response = memory_route(
-            messages=body.messages,
+        # Convert Pydantic models to dicts for memory_route
+        messages_dicts = [msg.dict() if hasattr(msg, 'dict') else msg for msg in body.messages]
+        
+        # Route through 3-tier memory system (V3)
+        response = memory_route_v3(
+            messages=messages_dicts,
             model=model,
             user_id=user_id,
             provider_url=provider_url,
@@ -160,10 +161,6 @@ async def chat_completions(
             backend_type=settings.memory_backend,
             backend_config=backend_config,
             memory_enabled=body.memory_enabled and settings.memory_enabled,
-            cache_enabled=settings.cache_enabled,
-            profile_enabled=settings.profile_enabled,
-            memory_search_limit=settings.memory_search_limit,
-            memory_max_context_tokens=settings.memory_max_context_tokens,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
             stream=body.stream
@@ -199,26 +196,26 @@ async def chat_completions(
             tokens=usage.get("total_tokens", 0)
         )
 
-        # Add enhanced diagnostic headers
+        # Add enhanced diagnostic headers with tier information
         headers = {
             # Core memory headers
             "X-Memory-Conversation-Id": metadata.get("conversation_id", ""),
-            "X-Memory-Context-Modified": str(metadata.get("context_modified", False)),
-            "X-Memory-Chunks-Retrieved": str(metadata.get("chunks_retrieved", 0)),
-            "X-Memory-Chunks-Created": str(metadata.get("chunks_created", 0)),
+            "X-Memory-Tiers-Used": ",".join(metadata.get("tiers_used", [])),
+            
+            # Tier-specific metrics
+            "X-Memory-Tier1-Turns": str(metadata.get("tier_1_turns", 0)),
+            "X-Memory-Tier2-Facts": str(metadata.get("tier_2_facts", 0)),
+            "X-Memory-Tier3-Memories": str(metadata.get("tier_3_memories", 0)),
 
             # Token metrics
             "X-Memory-Tokens-Input": str(metadata.get("tokens_input", 0)),
             "X-Memory-Tokens-Output": str(metadata.get("tokens_output", 0)),
             "X-Memory-Tokens-Memory": str(metadata.get("tokens_memory", 0)),
-            "X-Memory-Tokens-Profile": str(metadata.get("tokens_profile", 0)),
-            "X-Memory-Tokens-Processed": str(metadata.get("tokens_processed", 0)),
+            "X-Memory-Cost-Estimate": str(metadata.get("total_cost_estimate", 0)),
 
-            # Performance & features
+            # Performance
             "X-Memory-Processing-Time-Ms": str(int(metadata.get("processing_time_ms", 0))),
-            "X-Memory-Backend-Type": metadata.get("backend_type", "unknown"),
-            "X-Memory-Cache-Hit": str(metadata.get("cache_hit", False)),
-            "X-Memory-Profile-Found": str(metadata.get("profile_found", False))
+            "X-Memory-Enabled": str(metadata.get("memory_enabled", False))
         }
 
         # Add error header if there was an error
@@ -261,6 +258,34 @@ async def chat_completions(
                 }
             }
         )
+
+
+# OpenAI-compatible endpoint
+@app.post("/v1/chat/completions")
+@limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+async def chat_completions_v1(
+    request: Request,
+    body: ChatCompletionRequest,
+    authorization: Optional[str] = Header(None),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_provider_url: Optional[str] = Header(None, alias="X-Provider-URL"),
+):
+    """OpenAI-compatible endpoint: /v1/chat/completions"""
+    return await handle_chat_completion(request, body, authorization, x_user_id, x_provider_url)
+
+
+# Msty-compatible endpoint (without /v1 prefix)
+@app.post("/chat/completions")
+@limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+async def chat_completions_msty(
+    request: Request,
+    body: ChatCompletionRequest,
+    authorization: Optional[str] = Header(None),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_provider_url: Optional[str] = Header(None, alias="X-Provider-URL"),
+):
+    """Msty-compatible endpoint: /chat/completions"""
+    return await handle_chat_completion(request, body, authorization, x_user_id, x_provider_url)
 
 
 @app.get("/")
