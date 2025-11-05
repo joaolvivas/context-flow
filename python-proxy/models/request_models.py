@@ -48,6 +48,10 @@ class ChatCompletionRequest(BaseModel):
         default=True,
         description="Whether to use memory features (automatic context retrieval)"
     )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="Conversation ID for tracking multi-turn conversations (auto-generated if not provided)"
+    )
 
     class Config:
         json_schema_extra = {

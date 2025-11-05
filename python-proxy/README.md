@@ -6,12 +6,24 @@ A simple Python/FastAPI proxy that sits between Msty Studio (or any OpenAI-compa
 
 ## Features
 
+### Core Memory Features (Supermemory-inspired)
 - ✅ **OpenAI-compatible API** - Drop-in replacement, just change the base URL
 - ✅ **Automatic Memory** - Searches and injects relevant past context
+- ✅ **Intelligent Chunking** - Splits long messages into semantic chunks
+- ✅ **Conversation Tracking** - Tracks multi-turn conversations with unique IDs
+- ✅ **Token Optimization** - Prioritizes most relevant memories to save tokens
 - ✅ **Transparent Operation** - Works without code changes in your client
 - ✅ **Graceful Fallback** - If memory fails, requests pass through normally
 - ✅ **Async Storage** - Memories stored without blocking responses
-- ✅ **Multi-Provider** - Works with OpenAI, Anthropic, Groq, etc.
+
+### Provider & Integration
+- ✅ **Multi-Provider** - Works with OpenAI, Anthropic, Groq, DeepInfra, etc.
+- ✅ **MCP/Graphiti Integration** - Graph-based memory with Neo4j
+- ✅ **Automatic Entity Extraction** - Graphiti builds knowledge graph automatically
+
+### Diagnostics & Monitoring
+- ✅ **Rich Diagnostic Headers** - Complete visibility into memory operations
+- ✅ **Token Counting** - Track input, output, and memory token usage
 - ✅ **Metrics & Logging** - Track usage, costs, and memory effectiveness
 
 ## How It Works
@@ -103,13 +115,32 @@ X-Provider-URL: https://api.openai.com/v1 (override default)
 
 ### Response Headers
 
-Diagnostic headers:
+Comprehensive diagnostic headers (matching Supermemory):
 
 ```
-X-Memory-Chunks-Retrieved: 3
+X-Memory-Conversation-Id: 550e8400-e29b-41d4-a716-446655440000
 X-Memory-Context-Modified: true
+X-Memory-Chunks-Retrieved: 3
+X-Memory-Chunks-Created: 2
+X-Memory-Tokens-Input: 450
+X-Memory-Tokens-Output: 320
+X-Memory-Tokens-Memory: 180
+X-Memory-Tokens-Processed: 950
 X-Memory-Processing-Time-Ms: 145
+X-Memory-Error: <error message if any>
 ```
+
+**What each header means:**
+- `Conversation-Id`: Unique ID for tracking multi-turn conversations
+- `Context-Modified`: Whether memory context was injected
+- `Chunks-Retrieved`: Number of memory chunks added to context
+- `Chunks-Created`: Number of chunks created when storing memory
+- `Tokens-Input`: Tokens in original user messages
+- `Tokens-Output`: Tokens in LLM response
+- `Tokens-Memory`: Tokens used by memory context
+- `Tokens-Processed`: Total tokens processed by LLM
+- `Processing-Time-Ms`: Total processing time in milliseconds
+- `Error`: Error message if memory operation failed (graceful degradation)
 
 ## Configuration
 
@@ -130,7 +161,17 @@ MCP_STORE_ENDPOINT=http://localhost:5000/mcp/store
 # Memory settings
 MEMORY_ENABLED=true
 MEMORY_SEARCH_LIMIT=5
+
+# Memory optimization (NEW)
+MEMORY_MAX_CONTEXT_TOKENS=2000  # Max tokens for memory context
+MEMORY_CHUNK_SIZE=500            # Chunk size for long messages
 ```
+
+### Configuration Options Explained
+
+**Memory Optimization Settings:**
+- `MEMORY_MAX_CONTEXT_TOKENS`: Maximum tokens to use for memory context. Prevents exceeding model context windows. Higher values = more context but higher cost.
+- `MEMORY_CHUNK_SIZE`: When storing long messages, they're split into semantic chunks of this size. Smaller chunks = better retrieval granularity.
 
 ## Endpoints
 
@@ -151,6 +192,20 @@ Configure endpoints in `.env`:
 MCP_SEARCH_ENDPOINT=http://localhost:5000/mcp/search
 MCP_STORE_ENDPOINT=http://localhost:5000/mcp/store
 ```
+
+### Conversation Tracking
+
+Track multi-turn conversations with `conversation_id`:
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "messages": [...],
+  "conversation_id": "my-conversation-123"
+}
+```
+
+If not provided, a UUID is auto-generated. Use the same ID across messages to track conversation history.
 
 ### Disable Memory
 
@@ -195,7 +250,9 @@ python-proxy/
 ├── requirements.txt     # Dependencies
 │
 ├── modules/
-│   └── router.py        # Memory routing logic
+│   ├── router.py        # Memory routing logic
+│   ├── token_counter.py # Token counting (tiktoken)
+│   └── chunking.py      # Intelligent chunking
 │
 ├── models/
 │   ├── request_models.py
@@ -205,6 +262,28 @@ python-proxy/
     ├── logger.py        # Structured logging
     └── metrics.py       # Cost & usage tracking
 ```
+
+### Key Components
+
+**router.py** - Core memory routing with:
+- `search_memories()` - Search for relevant memories via MCP
+- `prioritize_memories()` - Token-aware memory filtering
+- `chunk_text()` - Semantic chunking for long messages
+- `enrich_messages()` - Inject memory context into prompts
+- `store_memory_async()` - Async storage with chunking
+- `memory_route()` - Main routing function
+
+**token_counter.py** - Accurate token counting:
+- Uses tiktoken for precise counts
+- Supports multiple models (GPT-4, Claude, etc.)
+- Counts message arrays and memory context
+- Context window management
+
+**chunking.py** - Intelligent text splitting:
+- Semantic chunking by paragraphs/sentences
+- Preserves code blocks
+- Configurable chunk sizes
+- Conversation-aware chunking
 
 ## Troubleshooting
 
@@ -220,11 +299,31 @@ Memory search has 1.5s timeout. If MCP is slow, increase timeout in `router.py`.
 
 | Feature | Supermemory | This Proxy |
 |---------|-------------|------------|
-| Memory Management | ✅ Cloud | ✅ Local (MCP) |
+| **Core Functionality** | | |
+| Memory Management | ✅ Cloud/Vector | ✅ Local Graph (MCP/Graphiti) |
 | OpenAI Compatible | ✅ | ✅ |
+| Conversation Tracking | ✅ | ✅ |
+| Intelligent Chunking | ✅ | ✅ |
+| Token Optimization | ✅ | ✅ |
+| Async Memory Storage | ✅ | ✅ |
+| **Diagnostics** | | |
+| Diagnostic Headers | ✅ | ✅ |
+| Token Counting | ✅ | ✅ |
+| Error Reporting | ✅ | ✅ |
+| **Integration** | | |
 | Self-Hosted | ❌ | ✅ |
 | Multi-Provider | ✅ | ✅ |
-| Cost | Paid after 100k tokens | Free (self-hosted) |
+| Graph-based Memory | ❌ | ✅ (Graphiti/Neo4j) |
+| Entity Extraction | ❌ | ✅ (via Graphiti) |
+| **Cost** | | |
+| Pricing | $20/month | ✅ **FREE** (self-hosted) |
+
+**Why this solution?**
+- 🎯 **No vendor lock-in** - You own your data and infrastructure
+- 💰 **Zero recurring costs** - Self-hosted means free forever
+- 🧠 **Superior memory** - Graph-based memory (Graphiti) > vector search
+- 🔗 **Automatic relationships** - Graphiti builds knowledge graphs automatically
+- 🔒 **Privacy** - Your conversations stay on your infrastructure
 
 ## License
 

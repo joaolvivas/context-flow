@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     # Memory Settings
     memory_enabled: bool = Field(default=True, env="MEMORY_ENABLED")
     memory_search_limit: int = Field(default=5, env="MEMORY_SEARCH_LIMIT")
+    memory_chunk_size: int = Field(default=500, env="MEMORY_CHUNK_SIZE")
+    memory_max_context_tokens: int = Field(default=2000, env="MEMORY_MAX_CONTEXT_TOKENS")
 
     # Rate Limiting
     rate_limit_per_minute: int = Field(default=60, env="RATE_LIMIT_PER_MINUTE")

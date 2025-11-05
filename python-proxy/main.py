@@ -140,9 +140,12 @@ async def chat_completions(
             user_id=user_id,
             provider_url=provider_url,
             api_key=api_key,
+            conversation_id=body.conversation_id,
             mcp_search_endpoint=settings.mcp_search_endpoint,
             mcp_store_endpoint=settings.mcp_store_endpoint,
             memory_enabled=body.memory_enabled and settings.memory_enabled,
+            memory_max_context_tokens=settings.memory_max_context_tokens,
+            memory_chunk_size=settings.memory_chunk_size,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
             stream=body.stream
@@ -178,12 +181,22 @@ async def chat_completions(
             tokens=usage.get("total_tokens", 0)
         )
 
-        # Add custom headers
+        # Add custom diagnostic headers (matching Supermemory)
         headers = {
-            "X-Memory-Chunks-Retrieved": str(metadata.get("chunks_retrieved", 0)),
+            "X-Memory-Conversation-Id": metadata.get("conversation_id", ""),
             "X-Memory-Context-Modified": str(metadata.get("context_modified", False)),
+            "X-Memory-Chunks-Retrieved": str(metadata.get("chunks_retrieved", 0)),
+            "X-Memory-Chunks-Created": str(metadata.get("chunks_created", 0)),
+            "X-Memory-Tokens-Input": str(metadata.get("tokens_input", 0)),
+            "X-Memory-Tokens-Output": str(metadata.get("tokens_output", 0)),
+            "X-Memory-Tokens-Memory": str(metadata.get("tokens_memory", 0)),
+            "X-Memory-Tokens-Processed": str(metadata.get("tokens_processed", 0)),
             "X-Memory-Processing-Time-Ms": str(int(metadata.get("processing_time_ms", 0)))
         }
+
+        # Add error header if there was an error
+        if metadata.get("error"):
+            headers["X-Memory-Error"] = str(metadata.get("error"))
 
         # Remove internal metadata before returning
         if "_memory_metadata" in response:
