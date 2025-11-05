@@ -1,9 +1,47 @@
-node_modules/
-dist/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment
 .env
-*.log
-.DS_Store
+.env.local
+
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# User profiles
+profiles/
+
+# Cache
+.cache/
+*.cache
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (legacy)
+node_modules/
