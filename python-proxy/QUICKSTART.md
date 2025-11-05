@@ -9,12 +9,20 @@ All systems are operational:
 
 ---
 
+## 🆕 New Features
+
+- **Bilingual Support**: Works in both Portuguese and English
+- **Tier 2 Fact Extraction**: Now fully operational (requires OpenAI API key)
+- **Professional Query Detection**: Automatically uses Tier 3 for career/background queries
+
+---
+
 ## Use with Msty Right Now
 
 ### 1. Configure Msty
 Point Msty to your memory proxy:
 - **API Endpoint**: `http://localhost:8000`
-- **API Key**: Your OpenAI API key
+- **API Key**: Your OpenAI API key (REQUIRED - get it from https://platform.openai.com/api-keys)
 
 ### 2. Start Chatting
 
@@ -25,20 +33,30 @@ The system will automatically:
 
 ### 3. Try These Examples
 
-**Store a fact:**
+**Store a fact (English or Portuguese):**
 ```
 You: "My dog's name is Max and I love black color"
+You: "Meu nome é João Lucas e sou media buyer"
 ```
 
 **Ask a simple question (uses Tier 1+2, ~100ms):**
 ```
 You: "What's my dog's name?"
+You: "Qual é meu nome?"
 → Fast response from Redis cache!
+```
+
+**Ask about your background (uses all 3 tiers, ~1-2s):**
+```
+You: "Tell me about my professional background"
+You: "Me conte sobre meu background profissional"
+→ Comprehensive response from Neo4j knowledge graph!
 ```
 
 **Ask a deep question (uses all 3 tiers, ~1-2s):**
 ```
 You: "Remember everything we discussed earlier?"
+You: "Me conte toda a informação que você tem sobre mim"
 → Comprehensive response from working memory + facts + knowledge graph
 ```
 
