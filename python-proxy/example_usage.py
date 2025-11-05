@@ -1,141 +1,113 @@
 """
-Exemplo de uso do Router Module
+Simple usage example of the Memory Router
 
-Demonstra como usar as funções do router.py standalone,
-sem necessidade de rodar o servidor FastAPI.
+This demonstrates how to use the router module directly
+without running the FastAPI server.
 """
 import os
-from modules.router import route, classify_intent
+from modules.router import route, memory_route
 
 
 def main():
-    """Exemplos de uso do router"""
+    """Simple usage examples"""
 
-    # Carrega API keys do ambiente
-    OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-    ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
+    # Get API key from environment
+    api_key = os.getenv("OPENAI_API_KEY")
 
-    if not OPENAI_KEY:
-        print("❌ OPENAI_API_KEY não encontrada no ambiente")
-        print("Execute: export OPENAI_API_KEY='sk-...'")
+    if not api_key:
+        print("❌ OPENAI_API_KEY not found in environment")
+        print("Run: export OPENAI_API_KEY='sk-...'")
         return
 
     print("=" * 60)
-    print("Memory Orchestrator Proxy - Router Example")
+    print("Memory Router - Simple Usage Example")
     print("=" * 60)
 
     # ========================================================================
-    # EXEMPLO 1: Conversa casual (sem memória)
+    # Example 1: Simple conversation with memory
     # ========================================================================
 
-    print("\\n\\n🤖 EXEMPLO 1: Conversa Casual")
+    print("\n\n🧠 Example 1: Conversation with Memory")
     print("-" * 60)
 
-    prompt = "Olá, tudo bem?"
-    print(f"User: {prompt}")
+    user_id = "demo-user"
 
-    response = route(
-        user_prompt=prompt,
-        user_id="user-joao",
-        openai_api_key=OPENAI_KEY,
-        verbose=True
+    # First message - introduce yourself
+    print("\nUser: Hi, my name is John and I'm a software engineer.")
+
+    response1 = route(
+        prompt="Hi, my name is John and I'm a software engineer.",
+        user_id=user_id,
+        api_key=api_key,
+        memory_enabled=True
     )
 
-    print(f"\\nAssistant: {response['choices'][0]['message']['content']}")
-    print(f"\\n📊 Metadata:")
-    print(f"  - Intent: {response['_router_metadata']['intent']}")
-    print(f"  - Model: {response['_router_metadata']['model_selected']}")
-    print(f"  - Time: {response['_router_metadata']['processing_time_ms']:.0f}ms")
+    print(f"Assistant: {response1}")
 
-    # ========================================================================
-    # EXEMPLO 2: Recall (busca memória)
-    # ========================================================================
+    # Second message - ask about yourself
+    # This should retrieve the memory from the first message
+    print("\nUser: What's my name?")
 
-    print("\\n\\n🧠 EXEMPLO 2: Recall com Memória")
-    print("-" * 60)
-
-    prompt = "Lembra qual link era o meu portfólio?"
-    print(f"User: {prompt}")
-
-    response = route(
-        user_prompt=prompt,
-        user_id="user-joao",
-        openai_api_key=OPENAI_KEY,
-        mcp_endpoint="http://localhost:5000/mcp/retrieve",  # Ajuste se necessário
-        verbose=True
+    response2 = route(
+        prompt="What's my name?",
+        user_id=user_id,
+        api_key=api_key,
+        memory_enabled=True
     )
 
-    print(f"\\nAssistant: {response['choices'][0]['message']['content']}")
-    print(f"\\n📊 Metadata:")
-    print(f"  - Intent: {response['_router_metadata']['intent']}")
-    print(f"  - Memories Used: {response['_router_metadata']['memories_used']}")
-    print(f"  - Model: {response['_router_metadata']['model_selected']}")
+    print(f"Assistant: {response2}")
 
     # ========================================================================
-    # EXEMPLO 3: Pergunta complexa (pode usar Claude)
+    # Example 2: Using memory_route directly with message history
     # ========================================================================
 
-    print("\\n\\n🔍 EXEMPLO 3: Pergunta Complexa")
+    print("\n\n💬 Example 2: Multi-turn conversation")
     print("-" * 60)
 
-    prompt = "Quais são as principais diferenças entre Python e JavaScript para desenvolvimento backend?"
-    print(f"User: {prompt}")
-
-    response = route(
-        user_prompt=prompt,
-        user_id="user-joao",
-        openai_api_key=OPENAI_KEY,
-        anthropic_api_key=ANTHROPIC_KEY,  # Pode escolher Claude
-        verbose=True
-    )
-
-    print(f"\\nAssistant: {response['choices'][0]['message']['content'][:200]}...")
-    print(f"\\n📊 Metadata:")
-    print(f"  - Intent: {response['_router_metadata']['intent']}")
-    print(f"  - Model: {response['_router_metadata']['model_selected']}")
-
-    # ========================================================================
-    # EXEMPLO 4: Store (armazenar informação)
-    # ========================================================================
-
-    print("\\n\\n💾 EXEMPLO 4: Armazenar Informação")
-    print("-" * 60)
-
-    prompt = "Guarda essa informação: meu portfolio é https://github.com/joaolucas"
-    print(f"User: {prompt}")
-
-    response = route(
-        user_prompt=prompt,
-        user_id="user-joao",
-        openai_api_key=OPENAI_KEY,
-        verbose=True
-    )
-
-    print(f"\\nAssistant: {response['choices'][0]['message']['content']}")
-
-    # ========================================================================
-    # EXEMPLO 5: Teste de classificação
-    # ========================================================================
-
-    print("\\n\\n🎯 EXEMPLO 5: Teste de Classificação de Intenções")
-    print("-" * 60)
-
-    test_prompts = [
-        "Lembra qual link era o meu portfólio?",
-        "Oi, tudo bem?",
-        "Resume nossa conversa de ontem",
-        "Guarda: meu email é joao@example.com",
-        "Quais empresas apliquei essa semana?",
-        "Explique machine learning",
-        "O que é FastAPI?"
+    messages = [
+        {"role": "user", "content": "I'm learning Python and FastAPI"},
+        {"role": "assistant", "content": "That's great! FastAPI is excellent for building APIs."},
+        {"role": "user", "content": "What was I learning about?"}
     ]
 
-    for test_prompt in test_prompts:
-        intent = classify_intent(test_prompt)
-        print(f"{intent:12} | {test_prompt}")
+    print("\nConversation:")
+    for msg in messages:
+        print(f"{msg['role'].title()}: {msg['content']}")
 
-    print("\\n" + "=" * 60)
-    print("✅ Exemplos concluídos!")
+    response = memory_route(
+        messages=messages,
+        model="gpt-4o-mini",
+        user_id=user_id,
+        provider_url="https://api.openai.com/v1",
+        api_key=api_key,
+        memory_enabled=True
+    )
+
+    print(f"\nFinal response: {response['choices'][0]['message']['content']}")
+    print(f"\nMetadata:")
+    print(f"  - Memories retrieved: {response.get('_memory_metadata', {}).get('chunks_retrieved', 0)}")
+    print(f"  - Context modified: {response.get('_memory_metadata', {}).get('context_modified', False)}")
+
+    # ========================================================================
+    # Example 3: Disable memory
+    # ========================================================================
+
+    print("\n\n⚪ Example 3: Without memory (fresh conversation)")
+    print("-" * 60)
+
+    response3 = route(
+        prompt="What's my name?",
+        user_id="different-user",  # Different user, no memory
+        api_key=api_key,
+        memory_enabled=False  # Explicitly disable memory
+    )
+
+    print(f"\nUser: What's my name?")
+    print(f"Assistant: {response3}")
+    print("(Should not know the name since memory is disabled)")
+
+    print("\n" + "=" * 60)
+    print("✅ Examples completed!")
     print("=" * 60)
 
 

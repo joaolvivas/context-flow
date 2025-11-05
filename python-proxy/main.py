@@ -1,58 +1,33 @@
 """
-Memory Orchestrator Proxy - FastAPI Server
+Memory Router Proxy - Transparent LLM proxy with automatic memory
 
-Proxy inteligente compatível com OpenAI API que adiciona memória persistente
-e roteamento inteligente de modelos para o Msty Studio.
+A simple proxy that sits between Msty Studio and your LLM provider,
+automatically managing context and memories like Supermemory's Memory Router.
 """
 import uuid
-import time
 from datetime import datetime
 from typing import Optional
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from config import settings, PERSONAS
-from models.request_models import ChatCompletionRequest, MemorySearchRequest, MemoryAddRequest
-from models.response_models import (
-    ChatCompletionResponse,
-    HealthResponse,
-    MetricsResponse,
-    MemorySearchResponse,
-    MemoryAddResponse,
-    ErrorResponse
-)
-from utils.logger import logger, request_logger
+from config import settings
+from models.request_models import ChatCompletionRequest
+from models.response_models import HealthResponse, ErrorResponse
+from modules.router import memory_route
+from utils.logger import logger
 from utils.metrics import metrics_tracker
 
 
-# Lifecycle management
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Gerencia startup e shutdown da aplicação"""
-    # Startup
-    logger.info("🚀 Starting Memory Orchestrator Proxy", port=settings.port)
-
-    # Verifica conexões (Neo4j, Graphiti, etc)
-    # TODO: Adicionar health checks aqui
-
-    yield
-
-    # Shutdown
-    logger.info("Shutting down Memory Orchestrator Proxy")
-
-
-# Inicializa FastAPI
+# Initialize FastAPI
 app = FastAPI(
-    title="Memory Orchestrator Proxy",
-    description="Proxy inteligente com memória persistente para Msty Studio",
-    version="1.0.0",
-    lifespan=lifespan
+    title="Memory Router Proxy",
+    description="Transparent LLM proxy with automatic memory management",
+    version="1.0.0"
 )
 
 # Rate limiting
@@ -71,77 +46,44 @@ app.add_middleware(
 )
 
 
-# Middleware para logging de requests
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Middleware para logging automático de todas as requests"""
+    """Log all requests"""
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
-    request.state.start_time = time.time()
 
     logger.info(
-        "request_started",
+        "request",
         request_id=request_id,
         method=request.method,
         path=request.url.path
     )
 
     response = await call_next(request)
-
-    duration_ms = (time.time() - request.state.start_time) * 1000
-
-    logger.info(
-        "request_completed",
-        request_id=request_id,
-        status_code=response.status_code,
-        duration_ms=round(duration_ms, 2)
-    )
-
     return response
 
 
-# ============================================================================
-# ENDPOINTS PRINCIPAIS
-# ============================================================================
-
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """
-    Health check do serviço
-
-    Verifica status de todas as dependências
-    """
-    # TODO: Implementar checks reais de Neo4j, Graphiti, etc
-    components = {
-        "graphiti": settings.graphiti_mcp_enabled,
-        "neo4j": True,  # TODO: Verificar conexão real
-        "openai": bool(settings.openai_api_key),
-        "anthropic": bool(settings.anthropic_api_key)
-    }
-
-    all_healthy = all(components.values())
-
+    """Health check endpoint"""
     return HealthResponse(
-        status="ok" if all_healthy else "degraded",
+        status="ok",
         timestamp=datetime.now(),
-        components=components,
+        components={
+            "memory": settings.memory_enabled
+        },
         memory={
-            "enabled": settings.graphiti_mcp_enabled,
-            "auto_store": settings.memory_auto_store
+            "enabled": settings.memory_enabled
         }
     )
 
 
-@app.get("/metrics", response_model=MetricsResponse)
+@app.get("/metrics")
 @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
 async def get_metrics(request: Request):
-    """
-    Retorna métricas do proxy
-
-    Inclui: requests, custos, tokens, tempos de resposta, uso de memória
-    """
+    """Get proxy metrics"""
     stats = metrics_tracker.get_stats()
-    return MetricsResponse(**stats)
+    return stats
 
 
 @app.post("/v1/chat/completions")
@@ -149,113 +91,120 @@ async def get_metrics(request: Request):
 async def chat_completions(
     request: Request,
     body: ChatCompletionRequest,
-    x_persona: Optional[str] = Header(None, alias="X-Persona")
+    authorization: Optional[str] = Header(None),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_provider_url: Optional[str] = Header(None, alias="X-Provider-URL"),
 ):
     """
-    Endpoint principal compatível com OpenAI Chat Completions
+    Main endpoint - OpenAI-compatible with automatic memory.
 
-    Suporta:
-    - Memória contextual via Graphiti
-    - Roteamento inteligente de modelos
-    - Múltiplas personas com namespaces
-    - Streaming de responses
-    - Function calling
+    Headers:
+        Authorization: Bearer {api_key} - LLM provider API key
+        X-User-Id: User identifier for memory namespace (optional, uses IP if not provided)
+        X-Provider-URL: Override default provider URL (optional)
     """
     request_id = request.state.request_id
-    start_time = time.time()
 
     try:
-        # 1. Determina persona
-        persona = x_persona or body.persona or settings.default_persona
-
-        if persona not in PERSONAS:
+        # Extract API key from Authorization header
+        if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(
-                status_code=400,
-                detail=f"Persona '{persona}' não encontrada. Disponíveis: {list(PERSONAS.keys())}"
+                status_code=401,
+                detail="Missing or invalid Authorization header"
             )
 
-        request_logger.log_request(
+        api_key = authorization.replace("Bearer ", "")
+
+        # Determine user_id (for memory namespace)
+        user_id = x_user_id or get_remote_address(request)
+
+        # Determine provider URL
+        provider_url = x_provider_url or settings.default_provider_url
+
+        # Use default model if not specified
+        model = body.model or settings.default_model
+
+        logger.info(
+            "processing_request",
             request_id=request_id,
-            persona=persona,
-            model=body.model,
-            message_count=len(body.messages),
+            user_id=user_id,
+            model=model,
+            messages=len(body.messages),
+            memory_enabled=body.memory_enabled
+        )
+
+        # Route through memory proxy
+        response = memory_route(
+            messages=body.messages,
+            model=model,
+            user_id=user_id,
+            provider_url=provider_url,
+            api_key=api_key,
+            mcp_search_endpoint=settings.mcp_search_endpoint,
+            mcp_store_endpoint=settings.mcp_store_endpoint,
+            memory_enabled=body.memory_enabled and settings.memory_enabled,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
             stream=body.stream
         )
 
-        # 2. Análise de intenção
-        # TODO: Implementar módulo de análise
+        # Handle streaming
+        if body.stream:
+            # TODO: Implement streaming with memory headers
+            return StreamingResponse(
+                response.iter_content(chunk_size=8192),
+                media_type="text/event-stream"
+            )
 
-        # 3. Recuperação de memória
-        # TODO: Implementar busca via Graphiti
+        # Track metrics
+        usage = response.get("usage", {})
+        metadata = response.get("_memory_metadata", {})
 
-        # 4. Roteamento de modelo
-        # TODO: Implementar seleção inteligente
+        metrics_tracker.track_request(
+            model=model,
+            persona=user_id[:8],  # Short user_id for metrics
+            tokens_input=usage.get("prompt_tokens", 0),
+            tokens_output=usage.get("completion_tokens", 0),
+            response_time_ms=metadata.get("processing_time_ms", 0),
+            memories_used=metadata.get("chunks_retrieved", 0)
+        )
 
-        # 5. Enriquecimento de prompt
-        # TODO: Injetar contexto de memória
+        logger.info(
+            "request_completed",
+            request_id=request_id,
+            model=model,
+            memories_retrieved=metadata.get("chunks_retrieved", 0),
+            context_modified=metadata.get("context_modified", False),
+            tokens=usage.get("total_tokens", 0)
+        )
 
-        # 6. Chamada ao provider (OpenAI, Anthropic, etc)
-        # TODO: Implementar providers
-
-        # Placeholder response por enquanto
-        response_time_ms = (time.time() - start_time) * 1000
-
-        # Mock response
-        mock_response = {
-            "id": f"chatcmpl-{request_id[:8]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": body.model,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": f"[MOCK] Você está usando a persona '{persona}'. Implementação completa em breve!"
-                },
-                "finish_reason": "stop"
-            }],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 20,
-                "total_tokens": 30
-            }
+        # Add custom headers
+        headers = {
+            "X-Memory-Chunks-Retrieved": str(metadata.get("chunks_retrieved", 0)),
+            "X-Memory-Context-Modified": str(metadata.get("context_modified", False)),
+            "X-Memory-Processing-Time-Ms": str(int(metadata.get("processing_time_ms", 0)))
         }
 
-        # Log metrics
-        metrics_tracker.track_request(
-            model=body.model,
-            persona=persona,
-            tokens_input=10,
-            tokens_output=20,
-            response_time_ms=response_time_ms,
-            memories_used=0
-        )
+        # Remove internal metadata before returning
+        if "_memory_metadata" in response:
+            del response["_memory_metadata"]
 
-        request_logger.log_response(
-            request_id=request_id,
-            model=body.model,
-            total_time_ms=response_time_ms,
-            tokens_input=10,
-            tokens_output=20,
-            cost_usd=0.0001,
-            memories_used=0
-        )
-
-        return JSONResponse(content=mock_response)
+        return JSONResponse(content=response, headers=headers)
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(
-            "chat_completion_error",
+            "request_error",
             request_id=request_id,
             error=str(e),
             exc_info=True
         )
 
+        # Track error
         metrics_tracker.track_request(
-            model=body.model,
-            persona=persona,
+            model=body.model or "unknown",
+            persona="error",
             tokens_input=0,
             tokens_output=0,
             response_time_ms=0,
@@ -267,126 +216,44 @@ async def chat_completions(
             content={
                 "error": {
                     "message": str(e),
-                    "type": "internal_error",
-                    "code": "proxy_error"
+                    "type": "proxy_error",
+                    "code": "internal_error"
                 }
             }
         )
 
 
-# ============================================================================
-# ENDPOINTS DE MEMÓRIA
-# ============================================================================
-
-@app.post("/memory/search", response_model=MemorySearchResponse)
-async def search_memory(request: Request, body: MemorySearchRequest):
-    """
-    Busca memórias diretamente via API
-
-    Útil para debugging ou acesso direto ao grafo de conhecimento
-    """
-    request_id = request.state.request_id
-    start_time = time.time()
-
-    try:
-        # TODO: Implementar busca real via Graphiti
-        search_time_ms = (time.time() - start_time) * 1000
-
-        return MemorySearchResponse(
-            query=body.query,
-            results=[],
-            total_found=0,
-            search_time_ms=search_time_ms
-        )
-
-    except Exception as e:
-        logger.error("memory_search_error", request_id=request_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/memory/add", response_model=MemoryAddResponse)
-async def add_memory(request: Request, body: MemoryAddRequest):
-    """
-    Adiciona memória manualmente ao grafo
-
-    Útil para popular o grafo ou corrigir informações
-    """
-    request_id = request.state.request_id
-
-    try:
-        # TODO: Implementar adição via Graphiti
-        return MemoryAddResponse(
-            success=True,
-            message="Memória adicionada com sucesso (mock)",
-            memory_id=str(uuid.uuid4())
-        )
-
-    except Exception as e:
-        logger.error("memory_add_error", request_id=request_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/memory/stats")
-async def memory_stats(request: Request):
-    """
-    Estatísticas do grafo de conhecimento
-
-    Retorna contadores de entidades, facts, etc
-    """
-    try:
-        # TODO: Buscar stats reais do Neo4j/Graphiti
-        return {
-            "total_entities": 0,
-            "total_facts": 0,
-            "by_namespace": {},
-            "by_persona": {}
+@app.get("/")
+async def root():
+    """Root endpoint with usage info"""
+    return {
+        "service": "Memory Router Proxy",
+        "version": "1.0.0",
+        "description": "Transparent LLM proxy with automatic memory management",
+        "endpoints": {
+            "health": "GET /health",
+            "metrics": "GET /metrics",
+            "chat": "POST /v1/chat/completions"
+        },
+        "usage": {
+            "base_url": f"http://localhost:{settings.port}/v1",
+            "headers": {
+                "Authorization": "Bearer your-llm-provider-api-key",
+                "X-User-Id": "user-identifier (optional)",
+                "X-Provider-URL": "https://api.openai.com/v1 (optional)"
+            }
         }
-
-    except Exception as e:
-        logger.error("memory_stats_error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# ENDPOINTS DE PERSONAS
-# ============================================================================
-
-@app.get("/personas")
-async def list_personas():
-    """Lista todas as personas disponíveis"""
-    return {
-        "personas": PERSONAS,
-        "default": settings.default_persona
     }
 
-
-@app.get("/personas/{persona_name}")
-async def get_persona(persona_name: str):
-    """Detalhes de uma persona específica"""
-    if persona_name not in PERSONAS:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Persona '{persona_name}' não encontrada"
-        )
-
-    return {
-        "name": persona_name,
-        **PERSONAS[persona_name]
-    }
-
-
-# ============================================================================
-# STARTUP
-# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
 
     logger.info(
-        "🚀 Starting server",
+        "starting_server",
         host=settings.host,
         port=settings.port,
-        debug=settings.debug
+        memory_enabled=settings.memory_enabled
     )
 
     uvicorn.run(

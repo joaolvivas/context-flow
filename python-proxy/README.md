@@ -1,28 +1,38 @@
-# 🧠 Memory Orchestrator Proxy (Python/FastAPI)
+# Memory Router Proxy
 
-Proxy inteligente que se integra ao Msty Studio, mantendo memória persistente e roteando entre diferentes modelos de IA.
+> Transparent LLM proxy with automatic memory management, inspired by Supermemory
 
-## 🎯 Características
+A simple Python/FastAPI proxy that sits between Msty Studio (or any OpenAI-compatible client) and your LLM provider, automatically enriching conversations with relevant context from past interactions.
 
-- ✅ API compatível com OpenAI (`/v1/chat/completions`)
-- ✅ Memória persistente com Graphiti + Neo4j
-- ✅ Roteamento inteligente de modelos (GPT-4, Claude, etc)
-- ✅ Sistema de personas com namespaces isolados
-- ✅ Análise de intenção de prompts
-- ✅ Enriquecimento automático de contexto
-- ✅ Logging detalhado com custos e métricas
-- ✅ Suporte a MCP tools
+## Features
 
-## 🚀 Quick Start
+- ✅ **OpenAI-compatible API** - Drop-in replacement, just change the base URL
+- ✅ **Automatic Memory** - Searches and injects relevant past context
+- ✅ **Transparent Operation** - Works without code changes in your client
+- ✅ **Graceful Fallback** - If memory fails, requests pass through normally
+- ✅ **Async Storage** - Memories stored without blocking responses
+- ✅ **Multi-Provider** - Works with OpenAI, Anthropic, Groq, etc.
+- ✅ **Metrics & Logging** - Track usage, costs, and memory effectiveness
 
-### Pré-requisitos
+## How It Works
 
-- Python 3.11+
-- Neo4j rodando localmente ou na nuvem
-- Graphiti MCP configurado
-- API keys (OpenAI, Anthropic, etc)
+```
+Msty Studio → Memory Proxy → LLM Provider
+              ↓
+         MCP/Graphiti
+         (Memory Storage)
+```
 
-### Instalação
+1. **Intercept** - Proxy receives chat request
+2. **Search** - Finds relevant memories from past conversations
+3. **Enrich** - Injects context into the prompt
+4. **Forward** - Sends enriched request to LLM
+5. **Store** - Saves new memories asynchronously
+6. **Return** - Streams response back to client
+
+## Quick Start
+
+### 1. Install Dependencies
 
 ```bash
 cd python-proxy
@@ -31,156 +41,191 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Configuração
+### 2. Configure
 
 ```bash
 cp .env.example .env
-# Editar .env com suas credenciais
+# Minimal config needed in .env:
+# - DEFAULT_PROVIDER_URL (default: https://api.openai.com/v1)
+# - DEFAULT_MODEL (default: gpt-4o-mini)
+# - MCP endpoints (if using MCP/Graphiti)
 ```
 
-### Rodar
+### 3. Run
 
 ```bash
-# Desenvolvimento
-uvicorn main:app --reload --port 8000
-
-# Produção
-uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+python main.py
+# Or: uvicorn main:app --reload --port 8000
 ```
 
-## 📋 Estrutura do Projeto
+### 4. Use with Msty Studio
+
+In Msty, add a custom provider:
+- **Name**: Memory Router
+- **Base URL**: `http://localhost:8000/v1`
+- **API Key**: Your actual LLM provider key (OpenAI, etc)
+
+That's it! Now all conversations through this provider will have automatic memory.
+
+## Usage
+
+### Via Msty Studio
+
+Just select the Memory Router provider and chat normally. The proxy will:
+- Automatically search for relevant past context
+- Inject it into your prompts
+- Store new memories after each conversation
+
+### Programmatic Usage
+
+```python
+from modules.router import route
+
+response = route(
+    prompt="What did we discuss yesterday?",
+    user_id="user-123",
+    api_key="sk-...",
+    memory_enabled=True
+)
+
+print(response)
+```
+
+### API Headers
+
+Optional headers:
 
 ```
-python-proxy/
-├── main.py                 # Entry point FastAPI
-├── config.py              # Configurações e variáveis de ambiente
-├── requirements.txt       # Dependências Python
-├── .env.example          # Template de configuração
-│
-├── modules/
-│   ├── intent_analyzer.py    # Análise de intenção do prompt
-│   ├── memory_manager.py     # Integração com Graphiti
-│   ├── model_router.py       # Roteamento inteligente de modelos
-│   ├── prompt_enricher.py    # Enriquecimento de contexto
-│   ├── persona_manager.py    # Sistema de personas
-│   └── mcp_tools.py          # Ferramentas MCP
-│
-├── providers/
-│   ├── openai_provider.py    # Client OpenAI
-│   ├── anthropic_provider.py # Client Anthropic
-│   └── base_provider.py      # Interface base
-│
-├── models/
-│   ├── request_models.py     # Modelos Pydantic para requests
-│   └── response_models.py    # Modelos Pydantic para responses
-│
-└── utils/
-    ├── logger.py             # Sistema de logging
-    ├── metrics.py            # Métricas e custos
-    └── cache.py              # Cache de embeddings e queries
+Authorization: Bearer your-llm-provider-key
+X-User-Id: unique-user-identifier
+X-Provider-URL: https://api.openai.com/v1 (override default)
 ```
 
-## 🔧 Configuração no Msty Studio
+### Response Headers
 
-No Msty Studio, adicione um provider customizado:
+Diagnostic headers:
+
+```
+X-Memory-Chunks-Retrieved: 3
+X-Memory-Context-Modified: true
+X-Memory-Processing-Time-Ms: 145
+```
+
+## Configuration
+
+Edit `.env` file:
+
+```bash
+# Server
+PORT=8000
+
+# Default LLM provider
+DEFAULT_PROVIDER_URL=https://api.openai.com/v1
+DEFAULT_MODEL=gpt-4o-mini
+
+# MCP/Memory endpoints
+MCP_SEARCH_ENDPOINT=http://localhost:5000/mcp/search
+MCP_STORE_ENDPOINT=http://localhost:5000/mcp/store
+
+# Memory settings
+MEMORY_ENABLED=true
+MEMORY_SEARCH_LIMIT=5
+```
+
+## Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/chat/completions` | POST | Main chat endpoint (OpenAI-compatible) |
+| `/health` | GET | Health check |
+| `/metrics` | GET | Usage metrics and stats |
+| `/` | GET | Service info |
+
+## Memory Integration
+
+### Using MCP/Graphiti
+
+Configure endpoints in `.env`:
+
+```bash
+MCP_SEARCH_ENDPOINT=http://localhost:5000/mcp/search
+MCP_STORE_ENDPOINT=http://localhost:5000/mcp/store
+```
+
+### Disable Memory
+
+Per-request:
 
 ```json
 {
-  "name": "Memory Orchestrator",
-  "base_url": "http://localhost:8000/v1",
-  "api_key": "sua-openai-key",
-  "models": [
-    "gpt-4-memory",
-    "claude-3-5-sonnet-memory",
-    "auto-route"
-  ]
+  "model": "gpt-4o-mini",
+  "messages": [...],
+  "memory_enabled": false
 }
 ```
 
-## 📊 Endpoints Disponíveis
-
-### Chat Completions
-```bash
-POST /v1/chat/completions
-```
-
-### Health Check
-```bash
-GET /health
-```
-
-### Métricas
-```bash
-GET /metrics
-```
-
-### Memory Management
-```bash
-GET /memory/stats
-POST /memory/add
-POST /memory/search
-```
-
-## 🧪 Exemplo de Uso
+Globally in `.env`:
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "X-Persona: job-seeker" \
-  -d '{
-    "model": "auto-route",
-    "messages": [
-      {"role": "user", "content": "Quais empresas eu já apliquei?"}
-    ]
-  }'
+MEMORY_ENABLED=false
 ```
 
-## 🎭 Personas
+## Metrics
 
-Configure múltiplas personas em `config.py`:
-
-```python
-PERSONAS = {
-    "job-seeker": {
-        "namespaces": ["applications", "companies", "skills"],
-        "default_model": "gpt-4",
-        "memory_enabled": True
-    },
-    "developer": {
-        "namespaces": ["code", "learning", "projects"],
-        "default_model": "claude-3-5-sonnet",
-        "memory_enabled": True
-    }
-}
+```bash
+curl http://localhost:8000/metrics
 ```
 
-## 📈 Logging e Métricas
+Returns usage stats, costs, and memory effectiveness.
 
-Todos os requests são logados com:
-- Tempo de resposta
-- Custo estimado
-- Tokens utilizados
-- Memórias recuperadas
-- Modelo selecionado
+## Examples
 
-## 🔐 Segurança
+See `example_usage.py`:
 
-- API keys armazenadas em `.env` (nunca comitar!)
-- Validação de requests com Pydantic
-- Rate limiting configurável
-- CORS configurável para produção
+```bash
+python example_usage.py
+```
 
-## 🚦 Status do Projeto
+## Architecture
 
-- [x] Estrutura base
-- [x] Endpoint OpenAI-compatible
-- [x] Integração Graphiti
-- [x] Roteamento de modelos
-- [x] Sistema de personas
-- [ ] Dashboard web
-- [ ] Fallback RAG vetorial
-- [ ] CLI standalone
+```
+python-proxy/
+├── main.py              # FastAPI server
+├── config.py            # Configuration
+├── requirements.txt     # Dependencies
+│
+├── modules/
+│   └── router.py        # Memory routing logic
+│
+├── models/
+│   ├── request_models.py
+│   └── response_models.py
+│
+└── utils/
+    ├── logger.py        # Structured logging
+    └── metrics.py       # Cost & usage tracking
+```
 
-## 📝 Licença
+## Troubleshooting
+
+### Memory not working
+
+The proxy works without MCP - it just won't have memory features. Check if MCP endpoints are reachable.
+
+### Slow responses
+
+Memory search has 1.5s timeout. If MCP is slow, increase timeout in `router.py`.
+
+## Comparison to Supermemory
+
+| Feature | Supermemory | This Proxy |
+|---------|-------------|------------|
+| Memory Management | ✅ Cloud | ✅ Local (MCP) |
+| OpenAI Compatible | ✅ | ✅ |
+| Self-Hosted | ❌ | ✅ |
+| Multi-Provider | ✅ | ✅ |
+| Cost | Paid after 100k tokens | Free (self-hosted) |
+
+## License
 
 MIT

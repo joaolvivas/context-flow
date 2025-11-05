@@ -75,56 +75,11 @@ class ChatCompletionChunk(BaseModel):
 class HealthResponse(BaseModel):
     """Response do health check"""
     status: Literal["ok", "degraded", "error"]
-    service: str = "memory-orchestrator-proxy"
+    service: str = "memory-router-proxy"
     version: str = "1.0.0"
     timestamp: datetime
-    components: Dict[str, bool] = Field(
-        default_factory=lambda: {
-            "graphiti": False,
-            "neo4j": False,
-            "openai": False,
-            "anthropic": False
-        }
-    )
-    memory: Dict[str, Any] = Field(
-        default_factory=lambda: {
-            "enabled": True,
-            "auto_store": True
-        }
-    )
-
-
-class MetricsResponse(BaseModel):
-    """Response com métricas"""
-    summary: Dict[str, Any]
-    by_model: Dict[str, Dict[str, Any]]
-    by_persona: Dict[str, int]
+    components: Dict[str, bool]
     memory: Dict[str, Any]
-    errors: Dict[str, Any]
-
-
-class MemorySearchResult(BaseModel):
-    """Resultado de busca de memória"""
-    name: str
-    content: str
-    relevance: Optional[float] = None
-    namespace: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-
-class MemorySearchResponse(BaseModel):
-    """Response de busca de memórias"""
-    query: str
-    results: List[MemorySearchResult]
-    total_found: int
-    search_time_ms: float
-
-
-class MemoryAddResponse(BaseModel):
-    """Response de adição de memória"""
-    success: bool
-    message: str
-    memory_id: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

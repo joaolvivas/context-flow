@@ -43,55 +43,23 @@ class ChatCompletionRequest(BaseModel):
     functions: Optional[List[FunctionDefinition]] = None
     function_call: Optional[Union[str, Dict[str, str]]] = None
 
-    # Campos customizados do proxy
-    persona: Optional[str] = Field(
-        default=None,
-        description="Persona a ser utilizada (job-seeker, developer, etc)"
-    )
+    # Memory Router custom fields
     memory_enabled: Optional[bool] = Field(
         default=True,
-        description="Se deve usar memória contextual"
-    )
-    memory_namespaces: Optional[List[str]] = Field(
-        default=None,
-        description="Namespaces específicos para buscar memórias"
-    )
-    auto_store_memory: Optional[bool] = Field(
-        default=True,
-        description="Se deve armazenar esta conversa automaticamente"
-    )
-    task_hint: Optional[str] = Field(
-        default=None,
-        description="Dica de tipo de tarefa para roteamento (quick_answer, deep_analysis, etc)"
+        description="Whether to use memory features (automatic context retrieval)"
     )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "model": "gpt-4-memory",
+                "model": "gpt-4o-mini",
                 "messages": [
-                    {"role": "user", "content": "Quais empresas eu já apliquei?"}
+                    {"role": "user", "content": "What did we discuss yesterday?"}
                 ],
-                "persona": "job-seeker",
+                "memory_enabled": True,
                 "temperature": 0.7,
                 "stream": False
             }
         }
 
 
-class MemorySearchRequest(BaseModel):
-    """Request para busca de memórias via API"""
-    query: str = Field(..., min_length=1, max_length=1000)
-    persona: Optional[str] = None
-    namespaces: Optional[List[str]] = None
-    limit: Optional[int] = Field(default=10, ge=1, le=50)
-    min_relevance: Optional[float] = Field(default=0.7, ge=0, le=1)
-
-
-class MemoryAddRequest(BaseModel):
-    """Request para adicionar memória via API"""
-    content: str = Field(..., min_length=1)
-    name: Optional[str] = None
-    persona: Optional[str] = None
-    namespaces: Optional[List[str]] = None
-    metadata: Optional[Dict[str, Any]] = None
