@@ -108,10 +108,18 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = Field(default="*", env="CORS_ORIGINS")
+    
+    # Default User ID (shared memory across all clients)
+    default_user_id: str = Field(
+        default="joao",
+        env="DEFAULT_USER_ID",
+        description="Default user ID when X-User-ID header is not provided (enables shared memory)"
+    )
 
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # Permitir campos extras no .env
 
 
 # Model pricing configurations (per 1K tokens)

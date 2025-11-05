@@ -4,6 +4,7 @@ Memory Router Proxy - Transparent LLM proxy with automatic memory
 A simple proxy that sits between Msty Studio and your LLM provider,
 automatically managing context and memories like Supermemory's Memory Router.
 """
+import os
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -114,7 +115,9 @@ async def handle_chat_completion(
         api_key = authorization.replace("Bearer ", "")
 
         # Determine user_id (for memory namespace)
-        user_id = x_user_id or get_remote_address(request)
+        # Use header if provided, otherwise use fixed default user_id for shared memory
+        # This ensures all clients share the same memory context
+        user_id = x_user_id or settings.default_user_id
 
         # Determine provider URL
         provider_url = x_provider_url or settings.default_provider_url
