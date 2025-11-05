@@ -133,7 +133,23 @@ async def chat_completions(
             memory_enabled=body.memory_enabled
         )
 
-        # Route through memory proxy
+        # Prepare backend configuration
+        backend_config = {}
+        if settings.memory_backend == "graphiti":
+            backend_config = {
+                "search_endpoint": settings.mcp_search_endpoint,
+                "store_endpoint": settings.mcp_store_endpoint,
+                "chunk_size": settings.memory_chunk_size,
+                "model": model
+            }
+        elif settings.memory_backend == "supermemory":
+            backend_config = {
+                "base_url": settings.supermemory_base_url,
+                "api_key": settings.supermemory_api_key,
+                "model": model
+            }
+
+        # Route through enhanced memory proxy
         response = memory_route(
             messages=body.messages,
             model=model,
@@ -141,11 +157,13 @@ async def chat_completions(
             provider_url=provider_url,
             api_key=api_key,
             conversation_id=body.conversation_id,
-            mcp_search_endpoint=settings.mcp_search_endpoint,
-            mcp_store_endpoint=settings.mcp_store_endpoint,
+            backend_type=settings.memory_backend,
+            backend_config=backend_config,
             memory_enabled=body.memory_enabled and settings.memory_enabled,
+            cache_enabled=settings.cache_enabled,
+            profile_enabled=settings.profile_enabled,
+            memory_search_limit=settings.memory_search_limit,
             memory_max_context_tokens=settings.memory_max_context_tokens,
-            memory_chunk_size=settings.memory_chunk_size,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
             stream=body.stream
@@ -181,17 +199,26 @@ async def chat_completions(
             tokens=usage.get("total_tokens", 0)
         )
 
-        # Add custom diagnostic headers (matching Supermemory)
+        # Add enhanced diagnostic headers
         headers = {
+            # Core memory headers
             "X-Memory-Conversation-Id": metadata.get("conversation_id", ""),
             "X-Memory-Context-Modified": str(metadata.get("context_modified", False)),
             "X-Memory-Chunks-Retrieved": str(metadata.get("chunks_retrieved", 0)),
             "X-Memory-Chunks-Created": str(metadata.get("chunks_created", 0)),
+
+            # Token metrics
             "X-Memory-Tokens-Input": str(metadata.get("tokens_input", 0)),
             "X-Memory-Tokens-Output": str(metadata.get("tokens_output", 0)),
             "X-Memory-Tokens-Memory": str(metadata.get("tokens_memory", 0)),
+            "X-Memory-Tokens-Profile": str(metadata.get("tokens_profile", 0)),
             "X-Memory-Tokens-Processed": str(metadata.get("tokens_processed", 0)),
-            "X-Memory-Processing-Time-Ms": str(int(metadata.get("processing_time_ms", 0)))
+
+            # Performance & features
+            "X-Memory-Processing-Time-Ms": str(int(metadata.get("processing_time_ms", 0))),
+            "X-Memory-Backend-Type": metadata.get("backend_type", "unknown"),
+            "X-Memory-Cache-Hit": str(metadata.get("cache_hit", False)),
+            "X-Memory-Profile-Found": str(metadata.get("profile_found", False))
         }
 
         # Add error header if there was an error

@@ -42,6 +42,35 @@ class Settings(BaseSettings):
     memory_chunk_size: int = Field(default=500, env="MEMORY_CHUNK_SIZE")
     memory_max_context_tokens: int = Field(default=2000, env="MEMORY_MAX_CONTEXT_TOKENS")
 
+    # Memory Backend Selection
+    memory_backend: str = Field(
+        default="graphiti",
+        env="MEMORY_BACKEND",
+        description="Backend type: 'graphiti' or 'supermemory'"
+    )
+
+    # Supermemory Configuration (when backend=supermemory)
+    supermemory_base_url: str = Field(
+        default="https://api.supermemory.ai",
+        env="SUPERMEMORY_BASE_URL",
+        description="Supermemory API URL (cloud or self-hosted)"
+    )
+    supermemory_api_key: Optional[str] = Field(
+        default=None,
+        env="SUPERMEMORY_API_KEY",
+        description="API key for Supermemory cloud (not needed for self-hosted)"
+    )
+
+    # Conversational Cache Settings
+    cache_enabled: bool = Field(default=True, env="CACHE_ENABLED")
+    cache_max_size: int = Field(default=100, env="CACHE_MAX_SIZE")
+    cache_ttl_seconds: int = Field(default=900, env="CACHE_TTL_SECONDS")  # 15 minutes
+    cache_similarity_threshold: float = Field(default=0.85, env="CACHE_SIMILARITY_THRESHOLD")
+
+    # User Profile Settings
+    profile_enabled: bool = Field(default=True, env="PROFILE_ENABLED")
+    profiles_dir: str = Field(default="profiles", env="PROFILES_DIR")
+
     # Rate Limiting
     rate_limit_per_minute: int = Field(default=60, env="RATE_LIMIT_PER_MINUTE")
 
