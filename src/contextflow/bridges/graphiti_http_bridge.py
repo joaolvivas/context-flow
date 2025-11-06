@@ -165,64 +165,37 @@ async def search_memories(request: SearchRequest):
         MAX_NODE_SUMMARY_LENGTH = 500  # Characters per node summary
         MAX_TOTAL_RESULTS = 15  # Hard cap on total results
         
-        # STEP 1: Search for relevant NODES (entities with rich summaries)
-        # This captures biographical info, professional background, etc.
-        from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
-        
-        node_config = NODE_HYBRID_SEARCH_RRF.model_copy(deep=True)
-        node_config.limit = min(request.limit, 5)  # Get top entities
-        
-        node_results = await graphiti_client.search_(
-            query=request.query,
-            config=node_config,
-            group_ids=[GROUP_ID]
-        )
-        
-        # Add node summaries (these have the rich context!)
-        for node in node_results.nodes:
-            # Truncate long summaries to prevent token spikes
-            summary = node.summary
-            if len(summary) > MAX_NODE_SUMMARY_LENGTH:
-                summary = summary[:MAX_NODE_SUMMARY_LENGTH] + "..."
-            
-            formatted_results.append({
-                "content": f"[Entity: {node.name}] {summary}",
-                "relevance": 0.9,  # Nodes are highly relevant
-                "timestamp": datetime.now().isoformat(),
-                "metadata": {
-                    "uuid": node.uuid,
-                    "type": "node",
-                    "entity_name": node.name,
-                    "group_id": GROUP_ID
-                }
-            })
-        
-        # STEP 2: Search for EDGES (facts/relationships)
-        # This captures specific statements and relationships
-        edge_results = await graphiti_client.search(
+        # STEP 1 & 2: Search Graphiti (gets both nodes and edges)
+        # Use basic search which returns facts/edges
+        results = await graphiti_client.search(
             query=request.query,
             group_ids=[GROUP_ID],
-            num_results=request.limit
+            num_results=request.limit * 2  # Get more to have variety
         )
         
-        # Add edge facts
-        for edge in edge_results:
+        # Format results
+        for item in results:
+            content = item.fact if hasattr(item, 'fact') else str(item)
+            # Truncate long content
+            if len(content) > MAX_NODE_SUMMARY_LENGTH:
+                content = content[:MAX_NODE_SUMMARY_LENGTH] + "..."
+            
             formatted_results.append({
-                "content": edge.fact if hasattr(edge, 'fact') else str(edge),
-                "relevance": edge.search_score if hasattr(edge, 'search_score') else 0.8,
+                "content": content,
+                "relevance": item.search_score if hasattr(item, 'search_score') else 0.8,
                 "timestamp": datetime.now().isoformat(),
                 "metadata": {
-                    "uuid": edge.uuid if hasattr(edge, 'uuid') else None,
-                    "type": "edge",
+                    "uuid": item.uuid if hasattr(item, 'uuid') else None,
+                    "type": "fact",
                     "group_id": GROUP_ID
                 }
             })
         
-        # Sort by relevance and apply hard cap to prevent token spikes
+        # Sort by relevance and apply hard cap
         formatted_results.sort(key=lambda x: x['relevance'], reverse=True)
         formatted_results = formatted_results[:min(request.limit, MAX_TOTAL_RESULTS)]
         
-        print(f"✓ Search returned {len(formatted_results)} results ({len(node_results.nodes)} nodes, {len(edge_results)} edges)")
+        print(f"✓ Search returned {len(formatted_results)} results")
         
         return SearchResponse(results=formatted_results)
         

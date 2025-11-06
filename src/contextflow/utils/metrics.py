@@ -5,7 +5,7 @@ from typing import Dict, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
 import threading
-from config import MODEL_CONFIGS
+from contextflow.config import MODEL_CONFIGS
 
 
 class MetricsTracker:
