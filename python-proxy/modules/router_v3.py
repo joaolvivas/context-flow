@@ -65,6 +65,8 @@ def is_negative_response(text: str) -> bool:
         # Direct "no information" statements
         "não tenho informação",
         "não tenho informações",
+        "não há informação",
+        "não há informações",
         "does not have information",
         "do not have information",
         "don't have information",
@@ -99,6 +101,11 @@ def is_negative_response(text: str) -> bool:
         "sem detalhes sobre",
         "cannot provide information",
         "não posso fornecer informação",
+        "informação não fornecida",
+        "not provided",
+        "no information available",
+        "sem dados disponíveis",
+        "não existe informação"
     ]
 
     # Check for negative patterns
@@ -131,22 +138,29 @@ def filter_negative_content(content: str) -> str:
         return ""
 
     # Split by common sentence delimiters
-    sentences = []
-    for line in content.split('\n'):
-        # Split by periods, but preserve structure
-        parts = line.split('.')
-        sentences.extend([s.strip() + '.' for s in parts if s.strip()])
+    lines = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
 
-    # Filter out negative sentences
-    positive_sentences = []
-    for sentence in sentences:
-        if not is_negative_response(sentence):
-            positive_sentences.append(sentence)
+        # Some entries contain multiple sentences separated by ". "
+        segments = [seg.strip() for seg in line.replace(" - ", ". ").split(".") if seg.strip()]
 
-    # Reconstruct content
-    filtered = ' '.join(positive_sentences).strip()
+        keep_segments = []
+        for seg in segments:
+            if not is_negative_response(seg):
+                keep_segments.append(seg)
 
-    return filtered if filtered else ""
+        if keep_segments:
+            cleaned_line = ". ".join(keep_segments)
+            # Restore original trailing punctuation if the line had it
+            if line.endswith(".") and not cleaned_line.endswith("."):
+                cleaned_line += "."
+            lines.append(cleaned_line)
+
+    filtered = "\n".join(lines).strip()
+    return filtered
 
 
 def get_memory_system() -> MemoryRouter:
