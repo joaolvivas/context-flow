@@ -161,6 +161,10 @@ async def search_memories(request: SearchRequest):
     try:
         formatted_results = []
         
+        # Context length limits (prevent token spikes)
+        MAX_NODE_SUMMARY_LENGTH = 500  # Characters per node summary
+        MAX_TOTAL_RESULTS = 15  # Hard cap on total results
+        
         # STEP 1: Search for relevant NODES (entities with rich summaries)
         # This captures biographical info, professional background, etc.
         from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
@@ -176,8 +180,13 @@ async def search_memories(request: SearchRequest):
         
         # Add node summaries (these have the rich context!)
         for node in node_results.nodes:
+            # Truncate long summaries to prevent token spikes
+            summary = node.summary
+            if len(summary) > MAX_NODE_SUMMARY_LENGTH:
+                summary = summary[:MAX_NODE_SUMMARY_LENGTH] + "..."
+            
             formatted_results.append({
-                "content": f"[Entity: {node.name}] {node.summary}",
+                "content": f"[Entity: {node.name}] {summary}",
                 "relevance": 0.9,  # Nodes are highly relevant
                 "timestamp": datetime.now().isoformat(),
                 "metadata": {
@@ -209,9 +218,9 @@ async def search_memories(request: SearchRequest):
                 }
             })
         
-        # Sort by relevance and limit total results
+        # Sort by relevance and apply hard cap to prevent token spikes
         formatted_results.sort(key=lambda x: x['relevance'], reverse=True)
-        formatted_results = formatted_results[:request.limit]
+        formatted_results = formatted_results[:min(request.limit, MAX_TOTAL_RESULTS)]
         
         print(f"✓ Search returned {len(formatted_results)} results ({len(node_results.nodes)} nodes, {len(edge_results)} edges)")
         

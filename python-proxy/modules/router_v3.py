@@ -24,6 +24,7 @@ from modules.token_counter import count_message_tokens
 from modules.backends import get_backend, MemoryBackend
 from modules.memory import WorkingMemory, SessionMemory
 from modules.memory.intelligent_router import MemoryRouter
+from modules.conversation_cache import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -144,89 +145,35 @@ def route_to_llm(
 
 def get_memory_system_prompt() -> str:
     """
-    Generate intelligent system prompt that explains the memory system to the LLM.
-
-    This makes the LLM aware of its memory capabilities and prevents it from
-    claiming ignorance when it has access to rich context.
-
-    Returns:
-        System prompt explaining the 3-tier memory architecture
+    Concise system prompt explaining memory capabilities.
+    
+    Optimized from 86 lines to 30 lines, saving ~400 tokens per request.
     """
-    return """You are an AI assistant with an advanced 3-tier memory system that provides you with personalized context about the user.
+    return """You have automatic access to personalized context from 3 memory tiers:
 
-## Your Memory Architecture
+**Working Memory**: Last 10 conversation turns (always included)
+**Session Facts**: Key information from past conversations  
+**Knowledge Graph**: Deep historical context with entity relationships and professional background
 
-Your memory system automatically provides you with relevant context from three tiers:
+**Context Format:**
+- Node summaries (rich biographical info): [Entity: Name] detailed description...
+- Specific facts: Individual statements and relationships
 
-**Tier 1 - Working Memory** (Recent Conversation)
-- Last 10-20 conversation turns
-- Provides immediate context for ongoing discussions
-- Always included automatically
+**CRITICAL Instructions:**
 
-**Tier 2 - Session Memory** (Extracted Facts)
-- Key facts from past conversations
-- Categories: preferences, goals, tools, people, teams, projects, hobbies
-- Automatically retrieved when relevant
+1. **Trust and use provided context confidently** - Never claim ignorance when information is below
 
-**Tier 3 - Long-term Memory** (Knowledge Graph)
-- Deep historical memories from Neo4j graph database
-- Entity relationships, professional background, comprehensive details
-- Automatically retrieved for deep/comprehensive queries
-- **CRITICAL**: For comprehensive queries ("tell me everything"), the system searches multiple dimensions (goals, projects, background, preferences, etc.) and can retrieve 15-20 relevant memories
+2. **Use memories naturally** - Don't say "based on provided context" - just use it as if you remember
 
-## How Your Memory Works
+3. **For comprehensive queries** ("tell me everything", "quem sou eu?"):
+   - Organize by category (goals, background, experience, projects, skills)
+   - Prioritize node summaries for biographical details
+   - Be specific with achievements and metrics
+   - Provide complete, professional summary
 
-### Intelligent Context Injection
+4. **Acknowledge gaps honestly** - If specific info ISN'T in context, say so
 
-The proxy automatically adjusts how much context to inject based on the query type:
-
-- **Simple queries**: Tier 1 only (conversation continuity)
-- **Factual queries**: Tiers 1 + 2 (+ some Tier 3)
-- **Deep queries**: All 3 tiers (10 memories from Tier 3)
-- **Comprehensive queries**: All 3 tiers + query expansion (20 memories from Tier 3 across multiple search terms)
-
-### Query Expansion for Comprehensive Queries
-
-When the user asks comprehensive questions like:
-- "Tell me everything about me"
-- "What do you know about my background?"
-- "Quem sou eu?"
-- "Me conte tudo que você sabe sobre mim"
-
-The system automatically expands the search across multiple dimensions:
-- Goals and objectives (short-term, long-term)
-- Professional background and career
-- Projects and achievements
-- Preferences and interests
-- Team and relationships
-- Skills and technologies
-
-This means you receive MUCH MORE context than a simple search would provide.
-
-## How to Use Your Memory
-
-**CRITICAL GUIDELINES:**
-
-1. **Trust the context provided** - The memory system has already done intelligent retrieval for you
-
-2. **Use memories naturally** - Don't say "Based on the memory provided..." - just use the information as if you naturally remember it
-
-3. **Be comprehensive when context is rich** - If you receive extensive Tier 3 memories, provide detailed, organized answers
-
-4. **Don't claim ignorance when you have context** - If information is in the context below, USE IT confidently
-
-5. **Structure comprehensive responses** - When answering "tell me everything" queries:
-   - Organize by category (goals, background, projects, etc.)
-   - Be specific with details from memories
-   - Provide a complete, professional summary
-
-6. **Acknowledge memory limitations honestly** - If specific information ISN'T in the context, it's okay to say so
-
-## Context Provided Below
-
-The context below contains memories automatically retrieved from your 3-tier system. The amount and depth depend on the query complexity.
-
-For comprehensive queries, you may receive 15-20 memories covering multiple aspects of the user's profile.
+**Your Memory Context:**
 
 ---"""
 
@@ -369,23 +316,50 @@ def memory_route_v3(
         # Get tiered memory context
         tiered_context = ""
         memory_metadata = {}
+        cache_hit = False
         
         if memory_enabled and query:
-            # Initialize Tier 3 backend (for deep queries)
-            backend_config = backend_config or {}
-            backend = get_backend(backend_type, **backend_config)
+            # Initialize cache
+            cache_enabled = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+            if cache_enabled:
+                cache = get_cache(
+                    max_size=int(os.getenv("CACHE_MAX_SIZE", "100")),
+                    ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "900")),
+                    similarity_threshold=float(os.getenv("CACHE_SIMILARITY_THRESHOLD", "0.85"))
+                )
+                
+                # Check cache first
+                cached_result = cache.get(conversation_id, query, model)
+                if cached_result:
+                    tiered_context, memory_metadata = cached_result
+                    cache_hit = True
+                    logger.info(f"✓ Cache HIT for conversation {conversation_id}")
+                    metadata["cache_hit"] = True
             
-            # Define Graphiti search function
-            def graphiti_search(q, uid, limit=3):
-                return backend.search(q, uid, limit)
-            
-            # Get context from appropriate tiers
-            tiered_context, memory_metadata = memory_router.get_memory_context(
-                user_id=user_id,
-                conversation_id=conversation_id,
-                query=query,
-                graphiti_search_func=graphiti_search if memory_router.graphiti_enabled else None
-            )
+            # Cache miss - retrieve from tiers
+            if not cache_hit:
+                # Initialize Tier 3 backend (for deep queries)
+                backend_config = backend_config or {}
+                backend = get_backend(backend_type, **backend_config)
+                
+                # Define Graphiti search function
+                def graphiti_search(q, uid, limit=3):
+                    return backend.search(q, uid, limit)
+                
+                # Get context from appropriate tiers
+                tiered_context, memory_metadata = memory_router.get_memory_context(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    query=query,
+                    graphiti_search_func=graphiti_search if memory_router.graphiti_enabled else None
+                )
+                
+                # Store in cache for future queries
+                if cache_enabled and tiered_context:
+                    cache.set(conversation_id, query, tiered_context, memory_metadata, model)
+                    logger.info(f"✓ Stored in cache for conversation {conversation_id}")
+                
+                metadata["cache_hit"] = False
             
             # Update metadata from tier usage
             metadata["tiers_used"] = memory_metadata.get("tiers_used", [])
