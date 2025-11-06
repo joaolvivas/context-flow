@@ -34,6 +34,121 @@ _session_memory = None
 _memory_router = None
 
 
+# ============================================================================
+# HELPER FUNCTIONS - Negative Response Detection
+# ============================================================================
+
+def is_negative_response(text: str) -> bool:
+    """
+    Detect if a response is negative/unhelpful and should NOT be stored in memory.
+
+    Negative responses include:
+    - "I don't have information about..."
+    - "Não tenho informações sobre..."
+    - "Error generating response..."
+    - "Desculpe, não sei..."
+    - Generic apologies without useful content
+
+    Args:
+        text: Assistant's response text
+
+    Returns:
+        True if response is negative/unhelpful, False if it contains useful information
+    """
+    if not text or not text.strip():
+        return True  # Empty responses are negative
+
+    text_lower = text.lower().strip()
+
+    # Negative patterns (Portuguese + English)
+    negative_patterns = [
+        # Direct "no information" statements
+        "não tenho informação",
+        "não tenho informações",
+        "does not have information",
+        "do not have information",
+        "don't have information",
+        "i don't have",
+        "não sei",
+        "i don't know",
+        "no information about",
+        "sem informação",
+        "without information",
+
+        # Error patterns
+        "error generating",
+        "erro ao gerar",
+        "failed to generate",
+        "falha ao gerar",
+        "error in agent",
+        "erro no agente",
+
+        # Generic unhelpful responses
+        "desculpe, mas não",
+        "sorry, but i don't",
+        "sorry, i don't",
+        "infelizmente não",
+        "unfortunately i don't",
+        "atualmente não",
+        "currently don't have",
+
+        # Specific negative contexts
+        "no specific information",
+        "nenhuma informação específica",
+        "no details about",
+        "sem detalhes sobre",
+        "cannot provide information",
+        "não posso fornecer informação",
+    ]
+
+    # Check for negative patterns
+    for pattern in negative_patterns:
+        if pattern in text_lower:
+            return True
+
+    # Additional heuristic: if response is very short and contains "não" or "sorry"
+    if len(text.split()) < 15:  # Very short responses
+        if any(word in text_lower for word in ["não", "sorry", "desculpe", "unfortunately", "infelizmente"]):
+            # Likely a negative response
+            return True
+
+    return False
+
+
+def filter_negative_content(content: str) -> str:
+    """
+    Filter out negative/unhelpful sentences from context content.
+
+    Used to clean up Tier 2/3 facts before injection into LLM context.
+
+    Args:
+        content: Context text (can be multi-line, multi-sentence)
+
+    Returns:
+        Filtered content with negative sentences removed
+    """
+    if not content or not content.strip():
+        return ""
+
+    # Split by common sentence delimiters
+    sentences = []
+    for line in content.split('\n'):
+        # Split by periods, but preserve structure
+        parts = line.split('.')
+        sentences.extend([s.strip() + '.' for s in parts if s.strip()])
+
+    # Filter out negative sentences
+    positive_sentences = []
+    for sentence in sentences:
+        if not is_negative_response(sentence):
+            positive_sentences.append(sentence)
+
+    # Reconstruct content
+    filtered = ' '.join(positive_sentences).strip()
+
+    return filtered if filtered else ""
+
+
 def get_memory_system() -> MemoryRouter:
     """
     Get or initialize the 3-tier memory system.
@@ -473,7 +588,15 @@ def memory_route_v3(
             # Store in background thread
             def store_in_background():
                 try:
+                    # FILTER: Skip storing negative/unhelpful responses
+                    if is_negative_response(assistant_response):
+                        logger.info(f"⚠️ Skipping storage: Response is negative/unhelpful")
+                        logger.debug(f"Negative response preview: {assistant_response[:100]}...")
+                        return
+
                     # Store across Tier 1 and Tier 2
+                    # Tier 1 always stores (for conversation continuity)
+                    # Tier 2/3 only store if response is positive/helpful
                     storage_meta = memory_router.store_conversation_turn(
                         user_id=user_id,
                         conversation_id=conversation_id,
@@ -481,13 +604,14 @@ def memory_route_v3(
                         assistant_response=assistant_response,
                         extract_facts=True  # Enable Tier 2 fact extraction
                     )
-                    
-                    logger.info(f"Tier 1 stored: {storage_meta['working_memory_stored']}")
-                    logger.info(f"Tier 2 facts: {storage_meta['session_facts_extracted']}")
-                    
+
+                    logger.info(f"✅ Tier 1 stored: {storage_meta['working_memory_stored']}")
+                    logger.info(f"✅ Tier 2 facts: {storage_meta['session_facts_extracted']}")
+
                     # Store in Tier 3 (Graphiti) - queued
+                    # Only if response is positive/helpful
                     memory_content = f"User: {query}\nAssistant: {assistant_response}"
-                    
+
                     chunks = _backend.store(
                         memory_content,
                         user_id,
@@ -497,7 +621,7 @@ def memory_route_v3(
                             "conversation_id": conversation_id
                         }
                     )
-                    logger.info(f"Tier 3 queued: {chunks} chunks")
+                    logger.info(f"✅ Tier 3 queued: {chunks} chunks")
                     
                 except Exception as e:
                     logger.error(f"Background storage error: {e}")

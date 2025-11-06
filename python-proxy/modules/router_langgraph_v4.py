@@ -27,7 +27,9 @@ from modules.router_v3 import (
     get_memory_system,
     route_to_llm,
     enrich_messages_with_tiered_context,
-    get_memory_system_prompt
+    get_memory_system_prompt,
+    is_negative_response,
+    filter_negative_content
 )
 from modules.backends import get_backend
 from modules.token_counter import count_message_tokens
@@ -380,8 +382,13 @@ def context_adapter_node(state: AgentState) -> AgentState:
     """
     Context Adapter Node - Optimize context based on model capabilities.
 
-    GPT-4o: Full context (can handle 3K+ tokens)
-    Local models (Qwen, Mistral): Compressed context (800 tokens max)
+    Filters negative/unhelpful facts and adapts context size by model type:
+    - GPT-4o: Full context (can handle 3K+ tokens)
+    - Local models (Qwen, Mistral): Compressed context (800 tokens max)
+
+    FILTERING STEP:
+    - Removes sentences containing "não tenho informação", "does not have information", etc.
+    - Prioritizes positive, factual information about the user
     """
     logger.info("⚡ Context Adapter Node: Optimizing for model")
 
@@ -397,21 +404,50 @@ def context_adapter_node(state: AgentState) -> AgentState:
         logger.info("  No context to optimize")
         return state
 
+    # STEP 1: FILTER negative/unhelpful facts from ALL tiers
+    # This prevents "I don't have information..." from polluting context
+    tier1_filtered = filter_negative_content(state["tier1_context"])
+    tier2_filtered = filter_negative_content(state["tier2_context"])
+    tier3_filtered = filter_negative_content(state["tier3_context"])
+
+    # Reconstruct combined context with filtered tiers
+    filtered_parts = []
+    if tier1_filtered:
+        filtered_parts.append(f"## Recent Conversation\n\n{tier1_filtered}")
+    if tier2_filtered:
+        filtered_parts.append(f"## Session Facts\n\n{tier2_filtered}")
+    if tier3_filtered:
+        filtered_parts.append(f"## Long-term Memories\n\n{tier3_filtered}")
+
+    filtered_combined = "\n\n".join(filtered_parts)
+
+    # Log filtering results
+    original_chars = len(combined_context)
+    filtered_chars = len(filtered_combined)
+    if filtered_chars < original_chars:
+        removed = original_chars - filtered_chars
+        logger.info(f"  🧹 Filtered out {removed} chars of negative content")
+    else:
+        logger.info(f"  ✓ No negative content detected")
+
+    # STEP 2: Adapt context size based on model type
     if is_gpt4:
         # GPT-4o can handle full context
-        state["optimized_context"] = combined_context
-        logger.info(f"  GPT-4o: Using full context ({len(combined_context)} chars)")
+        state["optimized_context"] = filtered_combined
+        logger.info(f"  GPT-4o: Using full filtered context ({len(filtered_combined)} chars)")
 
     elif is_local:
         # Local models need compressed context
+        # Work with FILTERED tiers to avoid negative content
         # Simple compression: take first 3000 chars (roughly 800 tokens)
         max_chars = 3000
 
-        if len(combined_context) > max_chars:
+        if len(filtered_combined) > max_chars:
             # Prioritize recent context (Tier 1) over historical (Tier 3)
-            tier1 = state["tier1_context"]
-            tier2 = state["tier2_context"]
-            tier3 = state["tier3_context"]
+            # Use FILTERED tiers (already cleaned)
+            tier1 = tier1_filtered
+            tier2 = tier2_filtered
+            tier3 = tier3_filtered
 
             # Budget allocation: Tier 1 (40%), Tier 2 (30%), Tier 3 (30%)
             t1_budget = int(max_chars * 0.4)
@@ -428,15 +464,15 @@ def context_adapter_node(state: AgentState) -> AgentState:
 
             state["optimized_context"] = "\n\n".join(compressed_parts)
 
-            logger.info(f"  Local model: Compressed context {len(combined_context)} → {len(state['optimized_context'])} chars")
+            logger.info(f"  Local model: Compressed filtered context {len(filtered_combined)} → {len(state['optimized_context'])} chars")
         else:
-            state["optimized_context"] = combined_context
-            logger.info(f"  Local model: Context within limit ({len(combined_context)} chars)")
+            state["optimized_context"] = filtered_combined
+            logger.info(f"  Local model: Filtered context within limit ({len(filtered_combined)} chars)")
 
     else:
-        # Other cloud models (Claude, etc) - use full context
-        state["optimized_context"] = combined_context
-        logger.info(f"  Cloud model: Using full context ({len(combined_context)} chars)")
+        # Other cloud models (Claude, etc) - use full FILTERED context
+        state["optimized_context"] = filtered_combined
+        logger.info(f"  Cloud model: Using full filtered context ({len(filtered_combined)} chars)")
 
     # Add context preview to metadata
     preview = state["optimized_context"][:200].replace("\n", " ")
@@ -580,10 +616,18 @@ def _store_conversation_turn_async(state: AgentState):
     # Store in background thread
     def store_in_background():
         try:
+            # FILTER: Skip storing negative/unhelpful responses
+            if is_negative_response(assistant_response):
+                logger.info(f"⚠️ Skipping storage: Response is negative/unhelpful")
+                logger.debug(f"Negative response preview: {assistant_response[:100]}...")
+                return
+
             # Get memory system
             memory_router = get_memory_system()
 
             # Store across Tier 1 and Tier 2
+            # Tier 1 always stores (for conversation continuity)
+            # Tier 2/3 only store if response is positive/helpful
             storage_meta = memory_router.store_conversation_turn(
                 user_id=user_id,
                 conversation_id=conversation_id,
@@ -592,10 +636,11 @@ def _store_conversation_turn_async(state: AgentState):
                 extract_facts=True  # Enable Tier 2 fact extraction
             )
 
-            logger.info(f"💾 Tier 1 stored: {storage_meta['working_memory_stored']}")
-            logger.info(f"💾 Tier 2 facts: {storage_meta['session_facts_extracted']}")
+            logger.info(f"✅ Tier 1 stored: {storage_meta['working_memory_stored']}")
+            logger.info(f"✅ Tier 2 facts: {storage_meta['session_facts_extracted']}")
 
             # Store in Tier 3 (Graphiti) - queued
+            # Only if response is positive/helpful
             try:
                 backend = get_backend(backend_type, **backend_config)
 
@@ -610,7 +655,7 @@ def _store_conversation_turn_async(state: AgentState):
                         "conversation_id": conversation_id
                     }
                 )
-                logger.info(f"💾 Tier 3 queued: {chunks} chunks")
+                logger.info(f"✅ Tier 3 queued: {chunks} chunks")
 
             except Exception as e:
                 logger.error(f"Tier 3 storage error: {e}")
