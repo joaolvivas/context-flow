@@ -162,23 +162,51 @@ async def search_memories(request: SearchRequest):
         formatted_results = []
         
         # Context length limits (prevent token spikes)
-        MAX_NODE_SUMMARY_LENGTH = 500  # Characters per node summary
+        MAX_NODE_SUMMARY_LENGTH = 1000  # Characters per node summary (increased for rich context)
         MAX_TOTAL_RESULTS = 15  # Hard cap on total results
         
-        # STEP 1 & 2: Search Graphiti (gets both nodes and edges)
-        # Use basic search which returns facts/edges
-        results = await graphiti_client.search(
+        # STEP 1: Search for ENTITY NODES with summaries (rich biographical data)
+        # Use Graphiti's search_ with NODE_HYBRID_SEARCH_RRF config
+        from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
+        
+        node_config = NODE_HYBRID_SEARCH_RRF.model_copy(deep=True)
+        node_config.limit = min(request.limit, 5)  # Get top entities
+        
+        node_results = await graphiti_client.search_(
             query=request.query,
-            group_ids=[GROUP_ID],
-            num_results=request.limit * 2  # Get more to have variety
+            config=node_config,
+            group_ids=[GROUP_ID]
         )
         
-        # Format results
-        for item in results:
+        # Add node summaries (these have the RICH context!)
+        for node in node_results.nodes:
+            summary = node.summary
+            # Truncate if too long
+            if len(summary) > MAX_NODE_SUMMARY_LENGTH:
+                summary = summary[:MAX_NODE_SUMMARY_LENGTH] + "..."
+            
+            formatted_results.append({
+                "content": f"[Entity: {node.name}] {summary}",
+                "relevance": 0.95,  # Nodes are highly relevant
+                "timestamp": datetime.now().isoformat(),
+                "metadata": {
+                    "uuid": node.uuid,
+                    "type": "node_summary",
+                    "entity_name": node.name,
+                    "group_id": GROUP_ID
+                }
+            })
+        
+        # STEP 2: Search for EDGES (facts/relationships) via Graphiti
+        edge_results = await graphiti_client.search(
+            query=request.query,
+            group_ids=[GROUP_ID],
+            num_results=request.limit
+        )
+        
+        # Add edge facts
+        for item in edge_results:
             content = item.fact if hasattr(item, 'fact') else str(item)
-            # Truncate long content
-            if len(content) > MAX_NODE_SUMMARY_LENGTH:
-                content = content[:MAX_NODE_SUMMARY_LENGTH] + "..."
             
             formatted_results.append({
                 "content": content,
@@ -195,7 +223,9 @@ async def search_memories(request: SearchRequest):
         formatted_results.sort(key=lambda x: x['relevance'], reverse=True)
         formatted_results = formatted_results[:min(request.limit, MAX_TOTAL_RESULTS)]
         
-        print(f"✓ Search returned {len(formatted_results)} results")
+        node_count = sum(1 for r in formatted_results if r['metadata']['type'] == 'node_summary')
+        fact_count = sum(1 for r in formatted_results if r['metadata']['type'] == 'fact')
+        print(f"✓ Search returned {len(formatted_results)} results ({node_count} nodes, {fact_count} facts)")
         
         return SearchResponse(results=formatted_results)
         
