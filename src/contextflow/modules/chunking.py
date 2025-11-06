@@ -6,7 +6,7 @@ Similar to Supermemory's chunking strategy.
 """
 import re
 from typing import List, Dict
-from modules.token_counter import count_tokens
+from contextflow.modules.token_counter import count_tokens
 
 
 # Chunk size limits (in tokens)

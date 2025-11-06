@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from collections import OrderedDict
 
-from modules.token_counter import count_tokens
+from contextflow.modules.token_counter import count_tokens
 
 
 class ConversationCache:

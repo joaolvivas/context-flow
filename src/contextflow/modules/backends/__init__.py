@@ -8,9 +8,9 @@ Provides pluggable memory storage/retrieval backends:
 
 All backends implement the same interface for seamless switching.
 """
-from modules.backends.base import MemoryBackend
-from modules.backends.graphiti_backend import GraphitiBackend
-from modules.backends.supermemory_backend import SupermemoryBackend
+from contextflow.modules.backends.base import MemoryBackend
+from contextflow.modules.backends.graphiti_backend import GraphitiBackend
+from contextflow.modules.backends.supermemory_backend import SupermemoryBackend
 
 
 def get_backend(backend_type: str, **config) -> MemoryBackend:

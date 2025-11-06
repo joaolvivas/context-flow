@@ -15,13 +15,13 @@ import threading
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from modules.token_counter import (
+from contextflow.modules.token_counter import (
     count_message_tokens,
     calculate_memory_tokens
 )
-from modules.conversation_cache import get_cache
-from modules.profile_manager import get_profile_manager
-from modules.backends import get_backend, MemoryBackend
+from contextflow.modules.conversation_cache import get_cache
+from contextflow.modules.profile_manager import get_profile_manager
+from contextflow.modules.backends import get_backend, MemoryBackend
 
 logger = logging.getLogger(__name__)
 

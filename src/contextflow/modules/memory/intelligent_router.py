@@ -6,8 +6,8 @@ Combines results from multiple tiers efficiently.
 """
 import re
 from typing import List, Dict, Tuple, Optional
-from modules.memory.working_memory import WorkingMemory
-from modules.memory.session_memory import SessionMemory
+from contextflow.modules.memory.working_memory import WorkingMemory
+from contextflow.modules.memory.session_memory import SessionMemory
 
 
 class MemoryRouter:

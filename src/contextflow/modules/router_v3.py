@@ -20,10 +20,11 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from modules.token_counter import count_message_tokens
-from modules.backends import get_backend, MemoryBackend
-from modules.memory import WorkingMemory, SessionMemory
-from modules.memory.intelligent_router import MemoryRouter
+from contextflow.modules.token_counter import count_message_tokens
+from contextflow.modules.backends import get_backend, MemoryBackend
+from contextflow.modules.memory import WorkingMemory, SessionMemory
+from contextflow.modules.memory.intelligent_router import MemoryRouter
+from contextflow.modules.conversation_cache import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +85,18 @@ def route_to_llm(
     api_key: str,
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
-    stream: bool = False
+    stream: bool = False,
+    tools: Optional[List[Dict]] = None,
+    tool_choice: Optional[Dict] = None,
+    functions: Optional[List[Dict]] = None,
+    function_call: Optional[Dict] = None,
+    **extra_params
 ) -> Dict:
-    """Forward request to LLM provider."""
+    """
+    Forward request to LLM provider.
+
+    Passes through all OpenAI parameters including tools/functions for MCP compatibility.
+    """
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -101,6 +111,21 @@ def route_to_llm(
 
     if max_tokens:
         payload["max_tokens"] = max_tokens
+
+    # Forward tool calling parameters (newer format - MCP uses this)
+    if tools:
+        payload["tools"] = tools
+    if tool_choice:
+        payload["tool_choice"] = tool_choice
+
+    # Forward function calling parameters (legacy format)
+    if functions:
+        payload["functions"] = functions
+    if function_call:
+        payload["function_call"] = function_call
+
+    # Forward any additional parameters
+    payload.update(extra_params)
 
     response = requests.post(
         f"{provider_url}/chat/completions",
@@ -118,24 +143,65 @@ def route_to_llm(
         return response.json()
 
 
+def get_memory_system_prompt() -> str:
+    """
+    Concise system prompt explaining memory capabilities.
+    
+    Optimized from 86 lines to 30 lines, saving ~400 tokens per request.
+    """
+    return """You have automatic access to personalized context from 3 memory tiers:
+
+**Working Memory**: Last 10 conversation turns (always included)
+**Session Facts**: Key information from past conversations  
+**Knowledge Graph**: Deep historical context with entity relationships and professional background
+
+**Context Format:**
+- Node summaries (rich biographical info): [Entity: Name] detailed description...
+- Specific facts: Individual statements and relationships
+
+**CRITICAL Instructions:**
+
+1. **Trust and use provided context confidently** - Never claim ignorance when information is below
+
+2. **Use memories naturally** - Don't say "based on provided context" - just use it as if you remember
+
+3. **For comprehensive queries** ("tell me everything", "quem sou eu?"):
+   - Organize by category (goals, background, experience, projects, skills)
+   - Prioritize node summaries for biographical details
+   - Be specific with achievements and metrics
+   - Provide complete, professional summary
+
+4. **Acknowledge gaps honestly** - If specific info ISN'T in context, say so
+
+**Your Memory Context:**
+
+---"""
+
+
 def enrich_messages_with_tiered_context(
     messages: List[Dict],
     tiered_context: str
 ) -> List[Dict]:
     """
-    Inject tiered memory context into messages.
-    
+    Inject tiered memory context into messages with intelligent system prompt.
+
     Args:
         messages: Original messages
         tiered_context: Context from 3-tier system
-    
+
     Returns:
-        Enriched messages
+        Enriched messages with system prompt + memory context
     """
     if not tiered_context:
         return messages
 
     enriched = messages.copy()
+
+    # Get intelligent system prompt
+    system_prompt = get_memory_system_prompt()
+
+    # Combine system prompt with actual memory context
+    full_system_content = f"{system_prompt}\n\n## Your Memory Context:\n\n{tiered_context}"
 
     # Find existing system message
     system_idx = None
@@ -145,13 +211,14 @@ def enrich_messages_with_tiered_context(
             break
 
     if system_idx is not None:
-        # Append to existing system message
-        enriched[system_idx]["content"] += f"\n\n{tiered_context}"
+        # Preserve user's original system message, append our memory system prompt
+        original_content = enriched[system_idx]["content"]
+        enriched[system_idx]["content"] = f"{original_content}\n\n{full_system_content}"
     else:
-        # Insert new system message
+        # Insert new system message with memory awareness
         enriched.insert(0, {
             "role": "system",
-            "content": f"You have access to the user's context and memory.\n\n{tiered_context}"
+            "content": full_system_content
         })
 
     return enriched
@@ -169,18 +236,23 @@ def memory_route_v3(
     memory_enabled: bool = True,
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
-    stream: bool = False
+    stream: bool = False,
+    tools: Optional[List[Dict]] = None,
+    tool_choice: Optional[Dict] = None,
+    functions: Optional[List[Dict]] = None,
+    function_call: Optional[Dict] = None,
+    **extra_params
 ) -> Dict:
     """
     3-Tier memory routing with intelligent tier selection.
-    
+
     Flow:
     1. Extract user query
     2. Get context from appropriate tiers (Working + Session + Graphiti when needed)
     3. Enrich messages with context
     4. Forward to LLM
     5. Store response across tiers
-    
+
     Args:
         messages: Chat messages
         model: LLM model
@@ -194,7 +266,12 @@ def memory_route_v3(
         temperature: Sampling temperature
         max_tokens: Max response tokens
         stream: Stream response
-    
+        tools: Tool definitions for function calling (MCP format)
+        tool_choice: Tool selection strategy
+        functions: Function definitions (legacy format)
+        function_call: Function calling strategy (legacy format)
+        **extra_params: Additional parameters to pass to LLM
+
     Returns:
         LLM response with memory metadata
     """
@@ -239,23 +316,50 @@ def memory_route_v3(
         # Get tiered memory context
         tiered_context = ""
         memory_metadata = {}
+        cache_hit = False
         
         if memory_enabled and query:
-            # Initialize Tier 3 backend (for deep queries)
-            backend_config = backend_config or {}
-            backend = get_backend(backend_type, **backend_config)
+            # Initialize cache
+            cache_enabled = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+            if cache_enabled:
+                cache = get_cache(
+                    max_size=int(os.getenv("CACHE_MAX_SIZE", "100")),
+                    ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "900")),
+                    similarity_threshold=float(os.getenv("CACHE_SIMILARITY_THRESHOLD", "0.85"))
+                )
+                
+                # Check cache first
+                cached_result = cache.get(conversation_id, query, model)
+                if cached_result:
+                    tiered_context, memory_metadata = cached_result
+                    cache_hit = True
+                    logger.info(f"✓ Cache HIT for conversation {conversation_id}")
+                    metadata["cache_hit"] = True
             
-            # Define Graphiti search function
-            def graphiti_search(q, uid, limit=3):
-                return backend.search(q, uid, limit)
-            
-            # Get context from appropriate tiers
-            tiered_context, memory_metadata = memory_router.get_memory_context(
-                user_id=user_id,
-                conversation_id=conversation_id,
-                query=query,
-                graphiti_search_func=graphiti_search if memory_router.graphiti_enabled else None
-            )
+            # Cache miss - retrieve from tiers
+            if not cache_hit:
+                # Initialize Tier 3 backend (for deep queries)
+                backend_config = backend_config or {}
+                backend = get_backend(backend_type, **backend_config)
+                
+                # Define Graphiti search function
+                def graphiti_search(q, uid, limit=3):
+                    return backend.search(q, uid, limit)
+                
+                # Get context from appropriate tiers
+                tiered_context, memory_metadata = memory_router.get_memory_context(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    query=query,
+                    graphiti_search_func=graphiti_search if memory_router.graphiti_enabled else None
+                )
+                
+                # Store in cache for future queries
+                if cache_enabled and tiered_context:
+                    cache.set(conversation_id, query, tiered_context, memory_metadata, model)
+                    logger.info(f"✓ Stored in cache for conversation {conversation_id}")
+                
+                metadata["cache_hit"] = False
             
             # Update metadata from tier usage
             metadata["tiers_used"] = memory_metadata.get("tiers_used", [])
@@ -268,22 +372,14 @@ def memory_route_v3(
             logger.info(f"Memory tiers used: {metadata['tiers_used']}")
             logger.info(f"Cost estimate: {metadata['total_cost_estimate']} tokens")
 
-            # DEBUG: Log context retrieval
-            logger.info(f"DEBUG - tiered_context length: {len(tiered_context) if tiered_context else 0}")
-            if tiered_context:
-                logger.info(f"DEBUG - tiered_context preview: {tiered_context[:200]}")
-
         # Enrich messages with tiered context
         enriched_messages = enrich_messages_with_tiered_context(messages, tiered_context)
-
-        # DEBUG: Log enrichment
-        logger.info(f"DEBUG - enriched_messages count: {len(enriched_messages)}")
         
         # Count memory tokens
         if tiered_context:
             metadata["tokens_memory"] = len(tiered_context.split())  # Approximate
 
-        # Forward to LLM
+        # Forward to LLM (pass through all parameters including tools for MCP)
         response = route_to_llm(
             enriched_messages,
             model,
@@ -291,7 +387,12 @@ def memory_route_v3(
             api_key,
             temperature,
             max_tokens,
-            stream
+            stream,
+            tools=tools,
+            tool_choice=tool_choice,
+            functions=functions,
+            function_call=function_call,
+            **extra_params
         )
 
         # Extract token usage

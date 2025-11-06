@@ -7,7 +7,7 @@ Provides reliable vector-based memory with UI and proven architecture.
 import requests
 from typing import List, Dict, Optional
 
-from modules.backends.base import MemoryBackend
+from contextflow.modules.backends.base import MemoryBackend
 
 
 class SupermemoryBackend(MemoryBackend):

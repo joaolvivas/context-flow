@@ -7,8 +7,8 @@ Provides entity extraction, relationship building, and semantic search.
 import requests
 from typing import List, Dict, Optional
 
-from modules.backends.base import MemoryBackend
-from modules.chunking import chunk_text, should_chunk
+from contextflow.modules.backends.base import MemoryBackend
+from contextflow.modules.chunking import chunk_text, should_chunk
 
 
 class GraphitiBackend(MemoryBackend):

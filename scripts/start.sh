@@ -55,6 +55,9 @@ start_proxy() {
         source venv/bin/activate
     fi
 
+    # Add src/ to PYTHONPATH so contextflow module can be imported
+    export PYTHONPATH="$(pwd)/src:$PYTHONPATH"
+    
     python -m uvicorn src.contextflow.main:app --host 0.0.0.0 --port 8000 &
     PROXY_PID=$!
     echo -e "${GREEN}✓ MemoryStack started (PID: $PROXY_PID)${NC}"
