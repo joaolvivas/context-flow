@@ -20,6 +20,20 @@ class MemoryRouter:
     - Tier 3 (Graphiti): For complex/historical queries only
     """
     
+    # Patterns for COMPREHENSIVE queries (highest priority)
+    # User wants EVERYTHING - requires query expansion + high limit
+    COMPREHENSIVE_QUERY_PATTERNS = [
+        # English patterns
+        r'\b(tell me everything|everything about|all about|complete|comprehensive)\b',
+        r'\b(what do you know about|what.{0,30}know.{0,30}(me|about me))\b',
+        r'\b(my entire|my complete|my full).{0,30}(background|history|profile)\b',
+        # Portuguese patterns
+        r'\b(me conte tudo|tudo sobre|tudo que|toda informação)\b',
+        r'\b(o que (você |voce )?sabe sobre|quem sou eu)\b',
+        r'\b(meu completo|minha completa|todo meu).{0,30}(background|histórico|perfil)\b',
+        r'\b(resumo (completo|detalhado|profissional))\b',
+    ]
+
     # Patterns that suggest deep/historical queries (2% of queries)
     # Supports English and Portuguese
     DEEP_QUERY_PATTERNS = [
@@ -27,15 +41,14 @@ class MemoryRouter:
         r'\b(remember|recall|previous|earlier|before|history|past)\b',
         r'\b(when did|how long|since when|relationship|connection)\b',
         r'\b(compare|difference|similar|related to|evolution|timeline)\b',
-        r'\b(all my|every time|throughout|over time|everything)\b',
+        r'\b(all my|every time|throughout|over time)\b',
         r'\b(background|experience|career|professional|work history)\b',
         # Portuguese patterns
         r'\b(lembr|record|anterior|antes|história|passado)\b',
         r'\b(quando|quanto tempo|desde quando|relacionamento|conexão)\b',
         r'\b(compar|diferença|similar|relacionado|evolução|linha do tempo)\b',
-        r'\b(tod[oa]s? (minhas?|meus?|a informação)|sempre|ao longo)\b',
+        r'\b(sempre|ao longo)\b',
         r'\b(background|experiência|carreira|profissional|histórico|trajetória)\b',
-        r'\b(me conte|me fale|traga|busque).{0,30}(tudo|toda|informação)\b',
     ]
 
     # Patterns for factual queries (8% of queries)
@@ -72,59 +85,123 @@ class MemoryRouter:
     def classify_query(self, query: str) -> Dict[str, any]:
         """
         Classify query to determine which tiers to use.
-        
+
         Progressive Injection Strategy:
         - Tier 1 only (90%): Simple queries, greetings, continuations
         - Tier 1 + 2 (8%): Factual queries about user info
-        - All tiers (2%): Deep/historical/analytical queries
-        
+        - All tiers deep (1.5%): Deep/historical/analytical queries
+        - All tiers comprehensive (0.5%): "Tell me everything" queries with expansion
+
         Args:
             query: User query
-        
+
         Returns:
             Dict with tier activation flags and query type
         """
         query_lower = query.lower()
         query_length = len(query.split())
-        
+
+        # Check for comprehensive queries (HIGHEST PRIORITY)
+        is_comprehensive = any(
+            re.search(pattern, query_lower, re.IGNORECASE)
+            for pattern in self.COMPREHENSIVE_QUERY_PATTERNS
+        )
+
         # Check for deep/historical query patterns
         is_deep_query = any(
             re.search(pattern, query_lower, re.IGNORECASE)
             for pattern in self.DEEP_QUERY_PATTERNS
         )
-        
+
         # Check for factual query patterns
         is_factual = any(
             re.search(pattern, query_lower, re.IGNORECASE)
             for pattern in self.FACTUAL_QUERY_PATTERNS
         )
-        
+
         # Determine query tier level
-        if is_deep_query:
-            tier_level = 3  # All tiers
+        if is_comprehensive:
+            tier_level = 4  # COMPREHENSIVE - All tiers + query expansion + high limit
             use_working_memory = True
             use_session_facts = True
             use_graphiti = self.graphiti_enabled
-        elif is_factual or query_length < 8:  # Very short queries often factual
-            tier_level = 2  # Tier 1 + 2 + 3 (include Graphiti for factual queries)
+            search_limit = 20  # High limit for comprehensive queries
+        elif is_deep_query:
+            tier_level = 3  # DEEP - All tiers
             use_working_memory = True
             use_session_facts = True
-            use_graphiti = self.graphiti_enabled  # Enable Tier 3 for factual queries
+            use_graphiti = self.graphiti_enabled
+            search_limit = 10  # Medium limit
+        elif is_factual or query_length < 8:  # Very short queries often factual
+            tier_level = 2  # FACTUAL - Tier 1 + 2 + 3
+            use_working_memory = True
+            use_session_facts = True
+            use_graphiti = self.graphiti_enabled
+            search_limit = 5  # Standard limit
         else:
-            tier_level = 1  # Tier 1 only
+            tier_level = 1  # SIMPLE - Tier 1 only
             use_working_memory = True
             use_session_facts = False
             use_graphiti = False
-        
+            search_limit = 0  # No Tier 3
+
         return {
             "use_working_memory": use_working_memory,
             "use_session_facts": use_session_facts,
             "use_graphiti": use_graphiti,
             "tier_level": tier_level,
+            "is_comprehensive": is_comprehensive,
             "is_deep_query": is_deep_query,
-            "is_factual": is_factual
+            "is_factual": is_factual,
+            "search_limit": search_limit
         }
     
+    def expand_comprehensive_query(self, query: str) -> List[str]:
+        """
+        Expand comprehensive queries into multiple targeted search terms.
+
+        When user asks "tell me everything about me", we search for:
+        - goals (short-term, long-term)
+        - professional background
+        - projects
+        - achievements
+        - preferences
+        - etc.
+
+        Args:
+            query: Original user query
+
+        Returns:
+            List of expanded search terms
+        """
+        # Detect language
+        is_portuguese = any(word in query.lower() for word in ['quem', 'sou', 'conte', 'tudo', 'sobre', 'meu', 'minha'])
+
+        if is_portuguese:
+            # Portuguese expansion terms
+            return [
+                "objetivos metas curto prazo longo prazo",
+                "background profissional carreira trabalho",
+                "projetos realizações conquistas",
+                "experiência histórico trajetória",
+                "preferências interesses hobbies",
+                "equipe time pessoas relacionamentos",
+                "ferramentas tecnologias skills",
+                "educação formação aprendizado"
+            ]
+        else:
+            # English expansion terms
+            return [
+                "goals objectives short-term long-term",
+                "professional background career work",
+                "projects achievements accomplishments",
+                "experience history trajectory",
+                "preferences interests hobbies",
+                "team people relationships",
+                "tools technologies skills",
+                "education learning training"
+            ]
+
     def get_memory_context(
         self,
         user_id: str,
@@ -187,17 +264,39 @@ class MemoryRouter:
                 # Estimate: ~100 tokens for facts
                 metadata["total_cost_estimate"] += 100
         
-        # Tier 3: Graphiti (Only for deep queries)
+        # Tier 3: Graphiti (For deep and comprehensive queries)
         if classification["use_graphiti"] and graphiti_search_func:
             try:
-                graphiti_results = graphiti_search_func(query, user_id, limit=3)
+                search_limit = classification.get("search_limit", 5)
+                is_comprehensive = classification.get("is_comprehensive", False)
+
+                # For comprehensive queries, use query expansion
+                if is_comprehensive:
+                    expanded_terms = self.expand_comprehensive_query(query)
+                    all_results = []
+                    seen_content = set()  # Deduplicate results
+
+                    # Search with each expanded term
+                    for term in expanded_terms:
+                        results = graphiti_search_func(term, user_id, limit=3)
+                        for result in results:
+                            content = result.get("content", "")
+                            if content and content not in seen_content:
+                                all_results.append(result)
+                                seen_content.add(content)
+
+                    graphiti_results = all_results[:search_limit]  # Cap at search_limit
+                else:
+                    # Standard single query search
+                    graphiti_results = graphiti_search_func(query, user_id, limit=search_limit)
+
                 if graphiti_results:
                     formatted_graphiti = self._format_graphiti_results(graphiti_results)
                     context_parts.append(f"<knowledge_graph>\n{formatted_graphiti}\n</knowledge_graph>")
                     metadata["graphiti_memories"] = len(graphiti_results)
                     metadata["tiers_used"].append("graphiti")
-                    # Estimate: ~500 tokens for graph context
-                    metadata["total_cost_estimate"] += 500
+                    # Estimate: ~500 tokens base + 100 per additional result
+                    metadata["total_cost_estimate"] += 500 + (len(graphiti_results) * 100)
             except Exception as e:
                 print(f"Graphiti search error: {e}")
         
