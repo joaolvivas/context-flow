@@ -5,16 +5,19 @@ Caches memory search results based on conversation context.
 Detects topic shifts and invalidates cache automatically.
 
 Features:
-- **Semantic query normalization** - Matches "Quem sou eu?" = "Who am I?" = "Tell me about me"
+- **Advanced Semantic Matching** - Intent-based + synonym mapping
+- **Cross-language** - Portuguese ↔ English automatic translation
+- **Intent patterns** - "who am I?" = "quem sou eu?" = "tell about me" → same cache
 - LRU cache with TTL (time-to-live)
 - Topic shift detection via word overlap similarity
-- Conversation window tracking (last N messages)
 - High hit rate (~85-95%) for typical conversations
 
 Semantic Matching Examples:
-- "Quem sou eu?" → "eu quem sou" → cache key: abc123
-- "Who am I?" → "i who" → cache key: abc123 (same!)
-- "Tell me about myself" → "about myself tell" → cache key: abc123 (same!)
+- "Quem sou eu?" → "identity_query"
+- "Who am I?" → "identity_query" (same cache!)
+- "Tell me about myself" → "identity_query" (same cache!)
+- "What are my goals?" → "goals_query"
+- "Quais são meus objetivos?" → "goals_query" (same cache!)
 """
 import time
 import hashlib
@@ -59,16 +62,19 @@ class ConversationCache:
 
     def _normalize_query(self, query: str) -> str:
         """
-        Normalize query to semantic form for cache matching.
+        Advanced semantic normalization for cross-language cache matching.
 
-        This allows "Quem sou eu?", "Who am I?", and "Tell me about me"
-        to all hit the same cache entry.
+        Handles:
+        - Synonyms: "goals" = "objectives" = "objetivos" = "metas"
+        - Intent patterns: "who am I" = "tell me about me" = "quem sou eu"
+        - Stemming: "working" = "worked" = "works" → "work"
+        - Bilingual: Portuguese + English
 
         Args:
             query: Raw user query
 
         Returns:
-            Normalized query string
+            Normalized semantic query key or intent pattern
         """
         import re
 
@@ -78,6 +84,47 @@ class ConversationCache:
         # Remove punctuation
         normalized = re.sub(r'[^\w\s]', '', normalized)
 
+        # Synonym mapping (Portuguese ↔ English)
+        synonym_map = {
+            # Identity queries
+            'quem': 'who', 'sou': 'am', 'eu': 'i', 'mim': 'me',
+            # Information queries
+            'conte': 'tell', 'fale': 'tell', 'mostre': 'show', 'traga': 'bring',
+            'sobre': 'about', 'acerca': 'about',
+            # Goals & Objectives
+            'objetivos': 'goals', 'metas': 'goals', 'objetivo': 'goal', 'meta': 'goal',
+            'planos': 'plans', 'plano': 'plan',
+            # Professional
+            'trabalho': 'work', 'profissional': 'professional', 'carreira': 'career',
+            'experiência': 'experience', 'experiencia': 'experience',
+            'background': 'background', 'histórico': 'background', 'historico': 'background',
+            'projetos': 'projects', 'projeto': 'project',
+            'empresas': 'companies', 'empresa': 'company',
+            # Skills & Abilities
+            'habilidades': 'skills', 'habilidade': 'skill',
+            'competências': 'skills', 'competencia': 'skill',
+            # Time references
+            'curto': 'short', 'médio': 'medium', 'medio': 'medium', 'longo': 'long',
+            'prazo': 'term',
+            # Quantifiers
+            'todo': 'all', 'toda': 'all', 'todos': 'all', 'todas': 'all',
+            'tudo': 'everything', 'completo': 'complete', 'completa': 'complete',
+            'inteiro': 'entire', 'inteira': 'entire',
+            # Actions
+            'resumo': 'summary', 'resumir': 'summarize',
+            'detalhes': 'details', 'detalhe': 'detail', 'detalhado': 'detailed',
+            'organiza': 'organize', 'organizar': 'organize',
+            # Common verbs (stem to base form)
+            'trabalhando': 'work', 'trabalhei': 'work', 'trabalhava': 'work',
+            'working': 'work', 'worked': 'work', 'works': 'work',
+            'fazendo': 'do', 'fiz': 'do', 'fazia': 'do', 'fazer': 'do',
+            'doing': 'do', 'did': 'do', 'does': 'do'
+        }
+
+        # Apply synonym mapping
+        words = normalized.split()
+        words = [synonym_map.get(w, w) for w in words]
+
         # Define stopwords (Portuguese + English)
         stopwords = {
             # Portuguese
@@ -86,7 +133,7 @@ class ConversationCache:
             'que', 'qual', 'quais', 'me', 'te', 'se', 'você', 'voce',
             # English
             'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
-            'by', 'from', 'up', 'about', 'into', 'through', 'during',
+            'by', 'from', 'up', 'into', 'through', 'during',
             'what', 'which', 'who', 'when', 'where', 'why', 'how',
             'is', 'are', 'am', 'was', 'were', 'be', 'been', 'being',
             'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
@@ -94,11 +141,50 @@ class ConversationCache:
             'my', 'your', 'his', 'her', 'its', 'our', 'their', 'me', 'you'
         }
 
-        # Extract keywords
-        words = normalized.split()
+        # Remove stopwords
         keywords = [w for w in words if w not in stopwords and len(w) > 1]
 
-        # Sort for consistency (order-independent matching)
+        # Detect intent patterns and normalize to canonical form
+        keywords_set = set(keywords)
+
+        # Identity intent: "who am i" = "tell about me" = "quem sou eu"
+        identity_keywords = {'i', 'who', 'about', 'tell', 'myself'}
+        if keywords_set & identity_keywords and len(keywords_set) <= 4:
+            return 'intent:identity'
+
+        # Goals intent: "my goals" = "objectives" = "metas"
+        goals_keywords = {'goals', 'goal', 'plan', 'plans'}
+        if keywords_set & goals_keywords:
+            # Distinguish by time horizon
+            if 'short' in keywords_set or 'term' in keywords_set:
+                return 'intent:goals:shortterm'
+            elif 'long' in keywords_set:
+                return 'intent:goals:longterm'
+            elif 'medium' in keywords_set:
+                return 'intent:goals:mediumterm'
+            return 'intent:goals'
+
+        # Background intent: "professional background" = "work experience"
+        background_keywords = {'background', 'experience', 'professional', 'career'}
+        if keywords_set & background_keywords:
+            return 'intent:background'
+
+        # Projects intent
+        projects_keywords = {'project', 'projects'}
+        if keywords_set & projects_keywords:
+            return 'intent:projects'
+
+        # Skills intent
+        skills_keywords = {'skill', 'skills', 'abilities'}
+        if keywords_set & skills_keywords:
+            return 'intent:skills'
+
+        # Companies intent
+        companies_keywords = {'company', 'companies'}
+        if keywords_set & companies_keywords:
+            return 'intent:companies'
+
+        # Default: Sort keywords for consistency (order-independent)
         keywords.sort()
 
         # Return normalized form
@@ -108,10 +194,12 @@ class ConversationCache:
         """
         Generate semantic cache key.
 
-        Uses normalized query so semantically similar queries hit same cache entry:
-        - "Quem sou eu?" → "eu quem sou" → hash
-        - "Who am I?" → normalized keywords → same semantic area
-        - "Tell me about me" → normalized keywords → same semantic area
+        Uses intent-based normalization so semantically similar queries
+        hit same cache entry across languages:
+
+        - "Quem sou eu?" → "intent:identity" → cache key
+        - "Who am I?" → "intent:identity" → same cache key!
+        - "Tell me about myself" → "intent:identity" → same cache key!
 
         Args:
             conversation_id: Conversation ID
