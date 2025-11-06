@@ -235,19 +235,55 @@ async def seed_memory(payload: SeedMemoryRequest):
 
 @app.get("/v1/memory/peek")
 @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
-async def memory_peek(request: Request, user_id: Optional[str] = None, conversation_id: Optional[str] = None, q: Optional[str] = None, turns: int = 10, facts: int = 5):
-    """Quick inspection of Tier1/2 memory for a user.
+async def memory_peek(
+    request: Request,
+    user_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    q: Optional[str] = None,
+    turns: int = 10,
+    facts: int = 5,
+    memories: int = 5,
+    use_langmem: bool = True
+):
+    """Quick inspection of memory for a user.
 
     Params:
     - user_id: defaults to settings.default_user_id
     - conversation_id: defaults to `default-{user_id}`
-    - q: optional query to filter facts
-    - turns: number of recent turns to show
-    - facts: number of facts to show
+    - q: optional query to filter facts/memories
+    - turns: number of recent turns to show (Tier 1)
+    - facts: number of facts to show (Tier 2)
+    - memories: number of long-term memories to show (Tier 3)
+    - use_langmem: use LangMem store if available (default: true)
     """
     _user = user_id or settings.default_user_id
     _conv = conversation_id or f"default-{_user}"
 
+    # Try LangMem first if enabled
+    if use_langmem:
+        try:
+            from modules.memory.langmem_store import get_langmem_store
+            langmem_store = get_langmem_store()
+
+            # Use LangMem peek method
+            peek_data = await langmem_store.peek_all_namespaces(
+                _user,
+                _conv,
+                turns_limit=turns,
+                facts_limit=facts,
+                memories_limit=memories
+            )
+
+            return {
+                **peek_data,
+                "source": "langmem",
+                "query": q
+            }
+
+        except Exception as e:
+            logger.warning(f"LangMem peek failed, falling back to legacy: {e}")
+
+    # Fallback to legacy memory system
     router = get_memory_system()
 
     # Tier 1
@@ -255,15 +291,88 @@ async def memory_peek(request: Request, user_id: Optional[str] = None, conversat
     recent_formatted = router.working_memory.format_as_context(_user, _conv, limit=turns)
 
     # Tier 2
-    facts_matches = router.session_memory.search_facts(_user, _conv, q or "", limit=facts) if q else router.session_memory.get_facts(_user, _conv)[:facts]
+    facts_matches = (
+        router.session_memory.search_facts(_user, _conv, q or "", limit=facts)
+        if q
+        else router.session_memory.get_facts(_user, _conv)[:facts]
+    )
     facts_formatted = router.session_memory.format_as_context(_user, _conv, query=q, limit=facts)
 
     return {
         "user_id": _user,
         "conversation_id": _conv,
-        "tier1": {"turns": recent[-turns:], "formatted": recent_formatted},
-        "tier2": {"facts": facts_matches, "formatted": facts_formatted},
+        "tier1": {"turns": recent[-turns:], "count": len(recent), "formatted": recent_formatted},
+        "tier2": {"facts": facts_matches, "count": len(facts_matches), "formatted": facts_formatted},
+        "tier3": {"count": 0, "note": "Use LangMem for Tier 3 inspection"},
+        "source": "legacy"
     }
+
+
+@app.post("/v1/memory/seed")
+@limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+async def seed_profile(
+    request: Request,
+    user_id: Optional[str] = None,
+    conversation_id: Optional[str] = None
+):
+    """Seed LangMem with base profile data.
+
+    Populates all 3 tiers with essential user information.
+    """
+    _user = user_id or settings.default_user_id
+    _conv = conversation_id or f"default-{_user}"
+
+    # Base profile data
+    profile_data = {
+        "name": "Lucas",
+        "bio": "Sou um media buyer profissional especializado em performance marketing e otimização de campanhas.",
+        "facts": [
+            {"category": "pets", "fact": "Tenho um cachorro chamado Koda"},
+            {"category": "team", "fact": "Torço para o Botafogo"},
+            {"category": "preference", "fact": "Minha cor favorita é preta"},
+            {"category": "biography", "fact": "Trabalho como media buyer focado em campanhas de performance"},
+            {"category": "biography", "fact": "Especializado em otimização de ROI e análise de métricas"}
+        ],
+        "memories": [
+            "Lucas é um profissional de marketing digital com foco em media buying e performance.",
+            "Ele tem experiência em otimização de campanhas e análise de métricas de conversão.",
+            "Lucas gosta de futebol e torce para o Botafogo, um time tradicional do Rio de Janeiro.",
+            "Ele tem um cachorro chamado Koda que é parte importante da sua vida pessoal."
+        ]
+    }
+
+    try:
+        from modules.memory.langmem_store import get_langmem_store
+        langmem_store = get_langmem_store()
+
+        # Seed the profile
+        counts = await langmem_store.seed_base_profile(_user, _conv, profile_data)
+
+        logger.info(
+            "profile_seeded",
+            user_id=_user,
+            conversation_id=_conv,
+            counts=counts
+        )
+
+        return {
+            "success": True,
+            "user_id": _user,
+            "conversation_id": _conv,
+            "seeded": counts,
+            "message": "Base profile seeded successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to seed profile: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to seed profile"
+            }
+        )
 
 
 async def handle_chat_completion(

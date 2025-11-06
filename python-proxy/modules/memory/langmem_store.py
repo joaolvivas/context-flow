@@ -28,13 +28,13 @@ import logging
 import asyncio
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
-from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
 # Lazy imports to avoid initialization issues
 _RedisStore = None
 _InMemoryStore = None
+_OpenAIEmbeddings = None
 
 
 def _get_redis_store_class():
@@ -57,6 +57,27 @@ def _get_inmemory_store_class():
         from langgraph.store.memory import InMemoryStore
         _InMemoryStore = InMemoryStore
     return _InMemoryStore
+
+
+def _get_openai_embeddings():
+    """Get or create OpenAI embeddings instance (singleton)."""
+    global _OpenAIEmbeddings
+    if _OpenAIEmbeddings is None:
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                logger.warning("OPENAI_API_KEY not set, embeddings will fail")
+                return None
+            _OpenAIEmbeddings = OpenAIEmbeddings(
+                model="text-embedding-3-small",
+                openai_api_key=openai_api_key
+            )
+            logger.debug("  ✓ OpenAI embeddings initialized")
+        except ImportError:
+            logger.error("langchain-openai not installed")
+            return None
+    return _OpenAIEmbeddings
 
 
 class LangMemStore:
@@ -104,40 +125,45 @@ class LangMemStore:
     async def _initialize_store(self):
         """Initialize the BaseStore backend."""
         try:
+            # Get embeddings function
+            embeddings = _get_openai_embeddings()
+            if embeddings is None and not self.use_in_memory:
+                logger.error("Failed to create embeddings, falling back to InMemoryStore")
+                self.use_in_memory = True
+
             if self.use_in_memory:
                 # Development/testing mode
                 InMemoryStoreClass = _get_inmemory_store_class()
-                self._store = InMemoryStoreClass(
-                    index={
-                        "dims": self.embedding_dims,
-                        "embed": self.embedding_model,
-                    }
-                )
+                # InMemoryStore doesn't need embeddings (no vector search)
+                self._store = InMemoryStoreClass()
                 logger.info("  ✓ InMemoryStore initialized (dev mode)")
             else:
                 # Production mode with Redis
+                # RedisStore.from_conn_string returns a context manager
+                # We need to enter it and keep the store instance
                 RedisStoreClass = _get_redis_store_class()
-                self._store = RedisStoreClass.from_conn_string(
-                    self.redis_url,
-                    index={
-                        "dims": self.embedding_dims,
-                        "embed": self.embedding_model,
-                    }
+
+                # Use Redis with embeddings for vector search
+                import redis.asyncio as redis_async
+
+                # Create Redis client directly
+                self._redis_client = redis_async.from_url(self.redis_url)
+
+                # Create store with embeddings
+                # RedisStore expects (conn_string, index={embed: Embeddings})
+                self._store = RedisStoreClass(
+                    self._redis_client,
+                    index={"embed": embeddings} if embeddings else None
                 )
-                await self._store.setup()
-                logger.info("  ✓ RedisStore initialized (production mode)")
+
+                logger.info(f"  ✓ RedisStore initialized (redis={self.redis_url})")
 
         except Exception as e:
-            logger.error(f"Failed to initialize LangMem store: {e}")
+            logger.error(f"Failed to initialize LangMem store: {e}", exc_info=True)
             # Fallback to in-memory
             logger.warning("  ⚠️ Falling back to InMemoryStore")
             InMemoryStoreClass = _get_inmemory_store_class()
-            self._store = InMemoryStoreClass(
-                index={
-                    "dims": self.embedding_dims,
-                    "embed": self.embedding_model,
-                }
-            )
+            self._store = InMemoryStoreClass()
             self.use_in_memory = True
 
     # =========================================================================
@@ -565,6 +591,149 @@ class LangMemStore:
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return {"healthy": False, "error": str(e)}
+
+    # =========================================================================
+    # Profile Seeding
+    # =========================================================================
+
+    async def seed_base_profile(
+        self,
+        user_id: str,
+        conversation_id: str,
+        profile_data: Dict[str, any]
+    ) -> Dict[str, int]:
+        """
+        Seed base profile data into LangMem namespaces.
+
+        Args:
+            user_id: User identifier
+            conversation_id: Conversation identifier
+            profile_data: Dict with keys: name, bio, facts, memories
+
+        Returns:
+            Dict with counts of seeded items per tier
+        """
+        await self._ensure_initialized()
+
+        counts = {"turns": 0, "facts": 0, "memories": 0}
+
+        # Check if already seeded (look for base_profile marker)
+        namespace_marker = ("metadata", user_id)
+        try:
+            existing_items = await self._store.asearch(namespace_marker, query="base_profile", limit=1)
+            if existing_items:
+                logger.info(f"  ℹ️ Base profile already seeded for user {user_id}")
+                return counts
+        except Exception:
+            pass  # Marker doesn't exist, proceed with seed
+
+        # Tier 1: Add base profile as initial turns
+        if "name" in profile_data or "bio" in profile_data:
+            # Create a synthetic "introduction" turn
+            intro_content = []
+            if "name" in profile_data:
+                intro_content.append(f"Meu nome é {profile_data['name']}.")
+            if "bio" in profile_data:
+                intro_content.append(profile_data["bio"])
+
+            intro_text = " ".join(intro_content)
+
+            await self.add_turn(user_id, conversation_id, "user", "Quem sou eu?")
+            await self.add_turn(user_id, conversation_id, "assistant", intro_text)
+            counts["turns"] = 2
+
+        # Tier 2: Add structured facts
+        if "facts" in profile_data and isinstance(profile_data["facts"], list):
+            facts_stored = await self.store_facts(user_id, conversation_id, profile_data["facts"])
+            counts["facts"] = facts_stored
+
+        # Tier 3: Add long-term memories
+        if "memories" in profile_data:
+            if isinstance(profile_data["memories"], str):
+                await self.store_memory(
+                    user_id,
+                    profile_data["memories"],
+                    metadata={"source": "base_profile", "seeded": True}
+                )
+                counts["memories"] = 1
+            elif isinstance(profile_data["memories"], list):
+                for memory in profile_data["memories"]:
+                    await self.store_memory(
+                        user_id,
+                        memory,
+                        metadata={"source": "base_profile", "seeded": True}
+                    )
+                    counts["memories"] += 1
+
+        # Mark as seeded
+        await self._store.aput(
+            namespace_marker,
+            "base_profile_seeded",
+            {
+                "seeded_at": datetime.now().isoformat(),
+                "user_id": user_id,
+                "conversation_id": conversation_id
+            }
+        )
+
+        logger.info(f"  ✅ Base profile seeded: {counts}")
+        return counts
+
+    # =========================================================================
+    # Inspection/Debugging
+    # =========================================================================
+
+    async def peek_all_namespaces(
+        self,
+        user_id: str,
+        conversation_id: str,
+        turns_limit: int = 10,
+        facts_limit: int = 5,
+        memories_limit: int = 5
+    ) -> Dict[str, any]:
+        """
+        Peek into all LangMem namespaces for debugging/inspection.
+
+        Returns:
+            Dict with turns, facts, and memories
+        """
+        await self._ensure_initialized()
+
+        result = {
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "tier1": {"turns": [], "count": 0},
+            "tier2": {"facts": [], "count": 0},
+            "tier3": {"memories": [], "count": 0}
+        }
+
+        # Tier 1: Conversations
+        try:
+            turns = await self.get_recent_turns(user_id, conversation_id, limit=turns_limit)
+            result["tier1"]["turns"] = turns
+            result["tier1"]["count"] = len(turns)
+        except Exception as e:
+            logger.warning(f"Failed to peek tier1: {e}")
+
+        # Tier 2: Facts
+        try:
+            # Get all facts (no query)
+            facts = await self.search_facts(user_id, conversation_id, "", limit=facts_limit)
+            result["tier2"]["facts"] = facts
+            result["tier2"]["count"] = len(facts)
+        except Exception as e:
+            logger.warning(f"Failed to peek tier2: {e}")
+
+        # Tier 3: Memories
+        try:
+            # Get recent memories (no specific query)
+            memories = await self.search_memories(user_id, "", limit=memories_limit)
+            result["tier3"]["memories"] = memories
+            result["tier3"]["count"] = len(memories)
+        except Exception as e:
+            logger.warning(f"Failed to peek tier3: {e}")
+
+        return result
 
 
 # ============================================================================

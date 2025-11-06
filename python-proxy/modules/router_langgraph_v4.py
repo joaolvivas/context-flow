@@ -678,9 +678,18 @@ def _store_conversation_turn_async(state: AgentState):
             logger.error(f"LangMem storage error: {e}", exc_info=True)
 
     # Schedule async storage (non-blocking)
-    asyncio.create_task(store_in_langmem())
-
-    logger.info("💾 LangMem storage scheduled (async)")
+    # Try to use the existing event loop, fall back to executor if needed
+    try:
+        loop = asyncio.get_running_loop()
+        # We're in an async context, schedule the task
+        loop.create_task(store_in_langmem())
+        logger.info("💾 LangMem storage scheduled (async task)")
+    except RuntimeError:
+        # No event loop running, use thread executor
+        import concurrent.futures
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        executor.submit(lambda: asyncio.run(store_in_langmem()))
+        logger.info("💾 LangMem storage scheduled (executor)")
 
 
 # ============================================================================

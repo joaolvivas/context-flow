@@ -34,7 +34,7 @@ structlog==24.4.0
 python-json-logger==2.0.7
 
 # Cache
-redis==5.2.0
+redis>=5.2.1,<7.0.0  # Updated for langraph-checkpoint-redis compatibility
 hiredis==3.0.0
 
 # Rate Limiting
@@ -42,11 +42,11 @@ slowapi==0.1.9
 
 # LangGraph Agent Framework
 langgraph==0.2.45
-langgraph-checkpoint==2.0.2
-langgraph-checkpoint-redis==2.0.0  # Redis store for LangMem
+langgraph-checkpoint>=2.0.21,<3.0.0  # Updated for redis compatibility
+langgraph-checkpoint-redis==0.1.2  # Redis store (includes BaseStore/RedisStore)
 langchain-core>=0.3.17,<0.4.0
 langchain-openai==0.2.8
-langmem==0.1.1  # Official LangMem SDK for long-term memory
+# Note: langmem removed due to conflicts; using langgraph.store.redis instead
 
 # Testing
 pytest==8.3.3
