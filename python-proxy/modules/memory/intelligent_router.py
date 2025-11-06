@@ -61,6 +61,7 @@ class MemoryRouter:
         r'\b(list|show|display) (my|all)\b',
         # Portuguese patterns
         r'\b(o que é|qual é|quais|quem é|onde é|nome|favorito|prefiro|prefer)\b',
+        r'\b(favorit[oa]?|cor favorita|time|time de coração|time do coração|cor)\b',
         r'\b(me fale sobre|informação sobre|me conte sobre|sobre mim|que tipo|que tipos|com quais)\b',
         r'\b(list|mostr|exib)[ea]r? (meu|minha|todo|toda)\b',
     ]

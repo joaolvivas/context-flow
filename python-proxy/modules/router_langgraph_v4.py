@@ -223,7 +223,8 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
                 cache_hit = True
 
                 # Parse cached context back into tier contexts
-                state["combined_context"] = combined_context
+                filtered_combined = filter_negative_content(combined_context)
+                state["combined_context"] = filtered_combined
                 state["tier1_context"] = ""  # Not separated in cache
                 state["tier2_context"] = ""
                 state["tier3_context"] = ""
@@ -250,11 +251,12 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
         if not classification["use_working_memory"]:
             return ""
 
-        context = memory_router.working_memory.format_as_context(
+        raw_context = memory_router.working_memory.format_as_context(
             state["user_id"],
             state["conversation_id"],
             limit=20
         )
+        context = filter_negative_content(raw_context)
         turns = len(memory_router.working_memory.get_recent_turns(
             state["user_id"],
             state["conversation_id"],
@@ -270,12 +272,13 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
         if not classification["use_session_facts"]:
             return ""
 
-        context = memory_router.session_memory.format_as_context(
+        raw_context = memory_router.session_memory.format_as_context(
             state["user_id"],
             state["conversation_id"],
             query=state["query"],
             limit=10
         )
+        context = filter_negative_content(raw_context)
         facts = memory_router.session_memory.search_facts(
             state["user_id"],
             state["conversation_id"],
@@ -309,8 +312,9 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
             context_parts = []
             for result in results:
                 content = result.get("content", "")
-                if content:
-                    context_parts.append(content)
+                filtered_content = filter_negative_content(content)
+                if filtered_content:
+                    context_parts.append(filtered_content)
 
             context = "\n\n".join(context_parts)
             state["metadata"]["tier_3_memories"] = len(results)
@@ -735,7 +739,7 @@ def get_memory_graph():
 # MAIN ENTRY POINT
 # ============================================================================
 
-def memory_route_langgraph(
+async def memory_route_langgraph(
     messages: List[Dict],
     model: str,
     user_id: str,
@@ -809,12 +813,11 @@ def memory_route_langgraph(
     # Get graph
     graph = get_memory_graph()
 
-    # Execute graph
-    # Note: LangGraph's invoke handles async nodes automatically
+    # Execute graph asynchronously (supports async nodes)
     config = {"configurable": {"thread_id": conversation_id}}
 
     try:
-        final_state = graph.invoke(initial_state, config=config)
+        final_state = await graph.ainvoke(initial_state, config=config)
 
         logger.info("✓ LangGraph orchestration completed successfully")
 

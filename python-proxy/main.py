@@ -371,7 +371,7 @@ async def handle_chat_completion(
 
         if use_langgraph:
             logger.info("🤖 Using LangGraph V4 agent orchestration")
-            response = memory_route_langgraph(
+            response = await memory_route_langgraph(
                 messages=messages_dicts,
                 model=model,
                 user_id=user_id,
@@ -492,13 +492,21 @@ async def handle_chat_completion(
 
         # Add error header if there was an error
         if metadata.get("error"):
-            headers["X-Memory-Error"] = str(metadata.get("error"))
+            sanitized_error = sanitize_header_value(metadata.get("error"), max_length=200)
+            if sanitized_error:
+                headers["X-Memory-Error"] = sanitized_error
+        # Sanitize every header value (remove newlines/non-ASCII)
+        sanitized_headers: Dict[str, str] = {}
+        for key, value in headers.items():
+            sanitized_value = sanitize_header_value(value)
+            if sanitized_value is not None:
+                sanitized_headers[key] = sanitized_value
 
         # Remove internal metadata before returning
         if "_memory_metadata" in response:
             del response["_memory_metadata"]
 
-        return JSONResponse(content=response, headers=headers)
+        return JSONResponse(content=response, headers=sanitized_headers)
 
     except HTTPException:
         raise
