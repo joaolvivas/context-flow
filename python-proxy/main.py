@@ -105,13 +105,12 @@ async def handle_chat_completion(
 
     try:
         # Extract API key from Authorization header
+        # Allow local model routing with missing/placeholder auth
         if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(
-                status_code=401,
-                detail="Missing or invalid Authorization header"
-            )
-
-        api_key = authorization.replace("Bearer ", "")
+            # Use placeholder for local model routing
+            api_key = "local-dev"
+        else:
+            api_key = authorization.replace("Bearer ", "")
 
         # Determine user_id (for memory namespace)
         # Use header if provided, otherwise use fixed default user_id for shared memory

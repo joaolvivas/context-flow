@@ -95,8 +95,24 @@ def route_to_llm(
     """
     Forward request to LLM provider.
 
+    Supports dual routing:
+    - Real API key → Forward to remote provider (OpenAI, Claude, etc.)
+    - "local-dev" or empty → Route to local MLX model at localhost:11964
+
     Passes through all OpenAI parameters including tools/functions for MCP compatibility.
     """
+    # Detect local model routing
+    is_local = api_key in ["local-dev", "", None]
+
+    if is_local:
+        # Route to local MLX endpoint
+        provider_url = "http://localhost:11964/v1"
+        model = "mistral:latest"
+        api_key = "local-dev"
+        logger.info(f"Routing to LOCAL MLX model at {provider_url}")
+    else:
+        logger.info(f"Routing to REMOTE provider: {provider_url}")
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
