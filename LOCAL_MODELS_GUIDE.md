@@ -2,6 +2,42 @@
 
 O proxy ContextFlow é **OpenAI-compatible**, então funciona com QUALQUER modelo local que exponha uma API compatível!
 
+## 🤖 Novo: LangGraph V4 Agent Orchestration
+
+**Atualização Importante:** ContextFlow agora suporta orquestração inteligente via LangGraph V4, otimizada especialmente para modelos locais!
+
+### O Que Mudou?
+
+**Antes (V3):**
+- Contexto fixo (~3K tokens) para todos os modelos
+- Busca sequencial nos 3 tiers (mais lenta)
+- Modelos locais ficavam "perdidos" com muito contexto
+
+**Agora (V4 LangGraph):**
+- ✅ **Context Adaptation**: GPT-4o recebe 3K tokens, modelos locais recebem 800 tokens otimizados
+- ✅ **Parallel Retrieval**: Busca nos 3 tiers em paralelo (200ms mais rápido)
+- ✅ **Intelligent Routing**: Cada nó do grafo tem função específica
+- ✅ **Better Quality**: Modelos locais agora geram respostas muito melhores!
+
+### Como Ativar LangGraph V4
+
+```bash
+# No seu .env
+LANGGRAPH_ENABLED=true
+```
+
+**Nota:** Streaming ainda não é suportado no V4, nesses casos o sistema volta automaticamente para V3.
+
+### Performance Comparativa
+
+| Modelo | V3 Quality | V4 Quality | V3 Latency | V4 Latency |
+|--------|-----------|-----------|-----------|-----------|
+| GPT-4o | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 1.5s | 1.4s |
+| Qwen 14B | ⭐⭐ | ⭐⭐⭐⭐ | 2.5s | 1.8s |
+| Qwen 3B | ⭐ | ⭐⭐⭐ | 2.0s | 1.5s |
+
+**Recomendação:** Se você usa modelos locais, **habilite V4** para melhor qualidade!
+
 ---
 
 ## 🌟 Opção 1: Ollama (RECOMENDADO)

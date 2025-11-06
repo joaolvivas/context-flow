@@ -23,6 +23,15 @@ from modules.router_v3 import memory_route_v3, get_memory_system
 from modules.backends import get_backend
 from utils.logger import logger
 from utils.metrics import metrics_tracker
+
+# LangGraph V4 (optional, conditional import)
+try:
+    from modules.router_langgraph_v4 import memory_route_langgraph
+    LANGGRAPH_AVAILABLE = True
+    logger.info("✓ LangGraph V4 agent orchestration available")
+except ImportError as e:
+    LANGGRAPH_AVAILABLE = False
+    logger.warning(f"⚠ LangGraph V4 not available: {e}")
 from pydantic import BaseModel
 class SeedMemoryRequest(BaseModel):
     """Payload to preload Tier 1 and Tier 2 with core identity info."""
@@ -353,27 +362,61 @@ async def handle_chat_completion(
         if body.user is not None:
             extra_params['user'] = body.user
 
-        # Route through 3-tier memory system (V3)
-        response = memory_route_v3(
-            messages=messages_dicts,
-            model=model,
-            user_id=user_id,
-            provider_url=provider_url,
-            api_key=api_key,
-            conversation_id=body.conversation_id,
-            backend_type=settings.memory_backend,
-            backend_config=backend_config,
-            memory_enabled=body.memory_enabled and settings.memory_enabled,
-            temperature=body.temperature,
-            max_tokens=body.max_tokens,
-            stream=body.stream,
-            tools=body.tools,
-            tool_choice=body.tool_choice,
-            functions=body.functions,
-            function_call=body.function_call,
-            force_graphiti=force_tier3,
-            **extra_params
+        # Route through memory system (V4 LangGraph or V3 fallback)
+        use_langgraph = (
+            LANGGRAPH_AVAILABLE and
+            settings.langgraph_enabled and
+            not body.stream  # LangGraph doesn't support streaming yet
         )
+
+        if use_langgraph:
+            logger.info("🤖 Using LangGraph V4 agent orchestration")
+            response = memory_route_langgraph(
+                messages=messages_dicts,
+                model=model,
+                user_id=user_id,
+                provider_url=provider_url,
+                api_key=api_key,
+                conversation_id=body.conversation_id,
+                backend_type=settings.memory_backend,
+                backend_config=backend_config,
+                memory_enabled=body.memory_enabled and settings.memory_enabled,
+                temperature=body.temperature,
+                max_tokens=body.max_tokens,
+                stream=body.stream,
+                tools=body.tools,
+                tool_choice=body.tool_choice,
+                functions=body.functions,
+                function_call=body.function_call,
+                force_graphiti=force_tier3,
+                **extra_params
+            )
+        else:
+            if body.stream:
+                logger.info("📡 Using V3 (streaming not supported in V4)")
+            else:
+                logger.info("🔄 Using V3 memory routing")
+
+            response = memory_route_v3(
+                messages=messages_dicts,
+                model=model,
+                user_id=user_id,
+                provider_url=provider_url,
+                api_key=api_key,
+                conversation_id=body.conversation_id,
+                backend_type=settings.memory_backend,
+                backend_config=backend_config,
+                memory_enabled=body.memory_enabled and settings.memory_enabled,
+                temperature=body.temperature,
+                max_tokens=body.max_tokens,
+                stream=body.stream,
+                tools=body.tools,
+                tool_choice=body.tool_choice,
+                functions=body.functions,
+                function_call=body.function_call,
+                force_graphiti=force_tier3,
+                **extra_params
+            )
 
         # Handle streaming
         if body.stream:

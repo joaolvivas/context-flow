@@ -105,9 +105,16 @@ class Settings(BaseSettings):
     
     graphiti_enabled: bool = Field(default=True, env="GRAPHITI_ENABLED")
     progressive_injection: bool = Field(
-        default=True, 
+        default=True,
         env="PROGRESSIVE_INJECTION",
         description="Enable progressive context injection (recommended)"
+    )
+
+    # LangGraph Agent Orchestration
+    langgraph_enabled: bool = Field(
+        default=False,
+        env="LANGGRAPH_ENABLED",
+        description="Enable LangGraph V4 agent orchestration (experimental)"
     )
 
     # Rate Limiting
