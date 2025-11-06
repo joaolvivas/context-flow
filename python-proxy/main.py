@@ -4,9 +4,10 @@ Memory Router Proxy - Transparent LLM proxy with automatic memory
 A simple proxy that sits between Msty Studio and your LLM provider,
 automatically managing context and memories like Supermemory's Memory Router.
 """
+import re
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,9 +19,36 @@ from slowapi.errors import RateLimitExceeded
 from config import settings
 from models.request_models import ChatCompletionRequest
 from models.response_models import HealthResponse, ErrorResponse
-from modules.router_v3 import memory_route_v3
+from modules.router_v3 import memory_route_v3, get_memory_system
+from modules.backends import get_backend
 from utils.logger import logger
 from utils.metrics import metrics_tracker
+from pydantic import BaseModel
+class SeedMemoryRequest(BaseModel):
+    """Payload to preload Tier 1 and Tier 2 with core identity info."""
+
+    user_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+    clear_existing: bool = True
+
+
+
+def sanitize_header_value(value: Optional[str], max_length: int = 200) -> Optional[str]:
+    """Ensure header value is ASCII-only and free of newlines."""
+    if value is None:
+        return None
+
+    sanitized = str(value).replace("\n", " ").replace("\r", " ")
+    sanitized = sanitized.encode("ascii", "ignore").decode("ascii")
+    sanitized = sanitized.strip()
+
+    if not sanitized:
+        return None
+
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+
+    return sanitized
 
 
 # Initialize FastAPI
@@ -86,6 +114,149 @@ async def get_metrics(request: Request):
     return stats
 
 
+@app.post("/v1/memory/seed")
+async def seed_memory(payload: SeedMemoryRequest):
+    """Seed Tier 1 and Tier 2 with base profile data fetched from Graphiti."""
+
+    if settings.memory_backend != "graphiti":
+        raise HTTPException(status_code=400, detail="Memory seeding requires Graphiti backend")
+
+    user_id = payload.user_id or settings.default_user_id
+    conversation_id = payload.conversation_id or f"default-{user_id}"
+
+    memory_router = get_memory_system()
+
+    if payload.clear_existing:
+        try:
+            memory_router.working_memory.clear_conversation(user_id, conversation_id)
+        except Exception as exc:
+            logger.warning("seed_memory_clear_failed", error=str(exc))
+
+    backend = get_backend(
+        "graphiti",
+        search_endpoint=settings.mcp_search_endpoint,
+        store_endpoint=settings.mcp_store_endpoint,
+        chunk_size=settings.memory_chunk_size,
+        model=settings.default_model,
+    )
+
+    profile_queries = [
+        "Resumo completo do perfil profissional do João Lucas Vivas",
+        "Quais são os objetivos profissionais de João Lucas Vivas",
+        "Quais plataformas e ferramentas João Lucas Vivas utiliza",
+        "Informações principais sobre João Lucas Vivas"
+    ]
+
+    snippets: List[str] = []
+    seen: set[str] = set()
+
+    for query in profile_queries:
+        try:
+            results = backend.search(query, user_id, limit=3) or []
+        except Exception as exc:
+            logger.error("seed_memory_graphiti_error", query=query, error=str(exc))
+            continue
+
+        for item in results:
+            content = (item.get("content") or "").strip()
+            if content and content not in seen:
+                snippets.append(content)
+                seen.add(content)
+
+    extra_snippets = [
+        "João Lucas Vivas tem um cachorro chamado Koda (American Bully).",
+        "João Lucas Vivas é torcedor do Botafogo e acompanha o clube com paixão.",
+        "A cor favorita de João Lucas Vivas é preta."
+    ]
+
+    for extra in extra_snippets:
+        if extra not in seen:
+            snippets.append(extra)
+            seen.add(extra)
+
+    if not snippets:
+        raise HTTPException(status_code=404, detail="Não foi possível recuperar dados do Graphiti")
+
+    base_profile_text = "\n".join(snippets)
+    seed_message = (
+        "Contexto base sobre João Lucas Vivas:\n"
+        f"{base_profile_text}\n\n"
+        "Use estas informações como memória imediata antes de consultar camadas mais profundas."
+    )
+
+    memory_router.working_memory.add_turn(user_id, conversation_id, "system", seed_message)
+
+    facts: List[Dict[str, str]] = []
+    for snippet in snippets:
+        category = "profile"
+        lowered = snippet.lower()
+        if any(word in lowered for word in ["objetivo", "goal", "meta"]):
+            category = "goal"
+        elif any(word in lowered for word in ["plataforma", "platform", "ferramenta", "tool"]):
+            category = "tools"
+        elif any(word in lowered for word in ["link", "linkedin", "portfólio", "portfolio"]):
+            category = "links"
+        elif any(word in lowered for word in ["cachorro", "dog", "koda", "pet"]):
+            category = "pets"
+        elif any(word in lowered for word in ["botafogo", "time", "clube", "time de futebol"]):
+            category = "team"
+        elif any(word in lowered for word in ["cor favorita", "favorite color", "preta", "preto"]):
+            category = "preference"
+        elif any(word in lowered for word in ["profissional", "carreira", "marketing", "media buyer"]):
+            category = "biography"
+        facts.append({"category": category, "fact": snippet})
+
+    stored_count = memory_router.session_memory.store_facts(user_id, conversation_id, facts)
+
+    logger.info(
+        "seed_memory_completed",
+        user_id=user_id,
+        conversation_id=conversation_id,
+        facts=stored_count,
+    )
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "conversation_id": conversation_id,
+        "facts_added": stored_count,
+        "snippets": snippets,
+    }
+
+
+@app.get("/v1/memory/peek")
+@limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+async def memory_peek(request: Request, user_id: Optional[str] = None, conversation_id: Optional[str] = None, q: Optional[str] = None, turns: int = 10, facts: int = 5):
+    """Quick inspection of Tier1/2 memory for a user.
+
+    Params:
+    - user_id: defaults to settings.default_user_id
+    - conversation_id: defaults to `default-{user_id}`
+    - q: optional query to filter facts
+    - turns: number of recent turns to show
+    - facts: number of facts to show
+    """
+    _user = user_id or settings.default_user_id
+    _conv = conversation_id or f"default-{_user}"
+
+    router = get_memory_system()
+
+    # Tier 1
+    recent = router.working_memory.get_recent_turns(_user, _conv, limit=turns)
+    recent_formatted = router.working_memory.format_as_context(_user, _conv, limit=turns)
+
+    # Tier 2
+    facts_matches = router.session_memory.search_facts(_user, _conv, q or "", limit=facts) if q else router.session_memory.get_facts(_user, _conv)[:facts]
+    facts_formatted = router.session_memory.format_as_context(_user, _conv, query=q, limit=facts)
+
+    return {
+        "user_id": _user,
+        "conversation_id": _conv,
+        "tier1": {"turns": recent[-turns:], "formatted": recent_formatted},
+        "tier2": {"facts": facts_matches, "formatted": facts_formatted},
+    }
+
+
 async def handle_chat_completion(
     request: Request,
     body: ChatCompletionRequest,
@@ -122,6 +293,20 @@ async def handle_chat_completion(
 
         # Use default model if not specified
         model = body.model or settings.default_model
+
+        # Determine user messages for intent checks
+        user_messages_raw = [msg for msg in body.messages if msg.role == "user" and (msg.content or "")] 
+
+        # Determine if Tier 3 should be forced
+        force_tier3 = bool(body.force_tier3)
+        if not force_tier3:
+            header_force = request.headers.get("X-Force-Tier3")
+            if header_force and header_force.lower() in {"true", "1", "yes", "on"}:
+                force_tier3 = True
+        if not force_tier3 and user_messages_raw:
+            last_content = user_messages_raw[-1].content or ""
+            if re.search(r"(usar|use|consultar|procure).*(tier\s*3|graphiti)", last_content, re.IGNORECASE):
+                force_tier3 = True
 
         logger.info(
             "processing_request",
@@ -186,6 +371,7 @@ async def handle_chat_completion(
             tool_choice=body.tool_choice,
             functions=body.functions,
             function_call=body.function_call,
+            force_graphiti=force_tier3,
             **extra_params
         )
 
@@ -201,7 +387,7 @@ async def handle_chat_completion(
         usage = response.get("usage", {})
         metadata = response.get("_memory_metadata", {})
 
-        metrics_tracker.track_request(
+        track_result = metrics_tracker.track_request(
             model=model,
             persona=user_id[:8],  # Short user_id for metrics
             tokens_input=usage.get("prompt_tokens", 0),
@@ -240,6 +426,26 @@ async def handle_chat_completion(
             "X-Memory-Processing-Time-Ms": str(int(metadata.get("processing_time_ms", 0))),
             "X-Memory-Enabled": str(metadata.get("memory_enabled", False))
         }
+
+        if track_result and not track_result.get("error"):
+            headers["X-Memory-Cost-Usd"] = str(round(track_result.get("cost_usd", 0), 6))
+            total_tokens = metadata.get("tokens_input", 0) + metadata.get("tokens_output", 0)
+            headers["X-Memory-Tokens-Total"] = str(total_tokens)
+
+        # Optional diagnostics
+        if metadata.get("why_tier3"):
+            sanitized = sanitize_header_value(metadata.get("why_tier3"), max_length=100)
+            if sanitized:
+                headers["X-Memory-Why-Tier3"] = sanitized
+        if metadata.get("cache_reason"):
+            sanitized = sanitize_header_value(metadata.get("cache_reason"), max_length=100)
+            if sanitized:
+                headers["X-Memory-Cache-Reason"] = sanitized
+        if metadata.get("context_preview"):
+            sanitized_preview = sanitize_header_value(metadata.get("context_preview"), max_length=200)
+            if sanitized_preview:
+                headers["X-Memory-Context-Preview"] = sanitized_preview
+        headers["X-Memory-Force-Tier3"] = str(force_tier3)
 
         # Add error header if there was an error
         if metadata.get("error"):

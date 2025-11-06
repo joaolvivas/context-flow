@@ -58,6 +58,10 @@ class ChatCompletionRequest(BaseModel):
         default=None,
         description="Conversation ID for tracking multi-turn conversations (auto-generated if not provided)"
     )
+    force_tier3: Optional[bool] = Field(
+        default=False,
+        description="Force Graphiti (Tier 3) retrieval regardless of intent"
+    )
 
     class Config:
         json_schema_extra = {

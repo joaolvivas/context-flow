@@ -82,11 +82,12 @@ class PatchedOpenAIClient(OpenAIClient):
             response_format=response_model,  # type: ignore[arg-type]
         )
 
-# Create LLM config - use standard model to avoid reasoning parameter
+# Create LLM config - allow overriding model via env (default: gpt-4o-mini-128k)
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+llm_model = os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini-128k")
 llm_config = LLMConfig(
     api_key=OPENAI_API_KEY,
-    model="gpt-4o",  # gpt-4o supports all parameters
+    model=llm_model,
     temperature=0.0
 )
 llm_client = PatchedOpenAIClient(config=llm_config)

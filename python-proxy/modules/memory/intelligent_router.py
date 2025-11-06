@@ -4,6 +4,7 @@ Intelligent Memory Router
 Decides which memory tier(s) to query based on the query type and context.
 Combines results from multiple tiers efficiently.
 """
+import os
 import re
 from typing import List, Dict, Tuple, Optional
 from modules.memory.working_memory import WorkingMemory
@@ -59,8 +60,8 @@ class MemoryRouter:
         r'\b(my .{1,20}\?|tell me about|information about)\b',
         r'\b(list|show|display) (my|all)\b',
         # Portuguese patterns
-        r'\b(o que é|qual é|quem é|onde é|nome|favorito|prefiro|prefer)\b',
-        r'\b(me fale sobre|informação sobre|me conte sobre|sobre mim)\b',
+        r'\b(o que é|qual é|quais|quem é|onde é|nome|favorito|prefiro|prefer)\b',
+        r'\b(me fale sobre|informação sobre|me conte sobre|sobre mim|que tipo|que tipos|com quais)\b',
         r'\b(list|mostr|exib)[ea]r? (meu|minha|todo|toda)\b',
     ]
     
@@ -82,7 +83,7 @@ class MemoryRouter:
         self.session_memory = session_memory
         self.graphiti_enabled = graphiti_enabled
     
-    def classify_query(self, query: str) -> Dict[str, any]:
+    def classify_query(self, query: str, force_graphiti: bool = False) -> Dict[str, any]:
         """
         Classify query to determine which tiers to use.
 
@@ -120,30 +121,50 @@ class MemoryRouter:
         )
 
         # Determine query tier level
+        # Allowed intents for Graphiti via env (comma-separated): deep,comprehensive,factual
+        allowed_graphiti_intents = set(
+            (os.getenv("GRAPHITI_ALLOWED_INTENTS", "deep,comprehensive,factual").lower())
+            .replace(" ", "")
+            .split(",")
+        )
+
+        why_tier3 = None
         if is_comprehensive:
             tier_level = 4  # COMPREHENSIVE - All tiers + query expansion + high limit
             use_working_memory = True
             use_session_facts = True
-            use_graphiti = self.graphiti_enabled
+            use_graphiti = self.graphiti_enabled and ("comprehensive" in allowed_graphiti_intents)
             search_limit = 20  # High limit for comprehensive queries
+            if use_graphiti:
+                why_tier3 = "comprehensive_query"
         elif is_deep_query:
             tier_level = 3  # DEEP - All tiers
             use_working_memory = True
             use_session_facts = True
-            use_graphiti = self.graphiti_enabled
+            use_graphiti = self.graphiti_enabled and ("deep" in allowed_graphiti_intents)
             search_limit = 10  # Medium limit
+            if use_graphiti:
+                why_tier3 = "deep_query_patterns"
         elif is_factual or query_length < 8:  # Very short queries often factual
-            tier_level = 2  # FACTUAL - Tier 1 + 2 + 3
+            tier_level = 2  # FACTUAL - Tier 1 + 2 (+3 if allowed)
             use_working_memory = True
             use_session_facts = True
-            use_graphiti = self.graphiti_enabled
+            use_graphiti = self.graphiti_enabled and ("factual" in allowed_graphiti_intents)
             search_limit = 5  # Standard limit
+            if use_graphiti:
+                why_tier3 = "factual_allowed_by_env"
         else:
             tier_level = 1  # SIMPLE - Tier 1 only
             use_working_memory = True
             use_session_facts = False
             use_graphiti = False
             search_limit = 0  # No Tier 3
+
+        if force_graphiti:
+            use_graphiti = self.graphiti_enabled
+            use_session_facts = True
+            why_tier3 = "forced"
+            tier_level = max(tier_level, 3)
 
         return {
             "use_working_memory": use_working_memory,
@@ -153,7 +174,9 @@ class MemoryRouter:
             "is_comprehensive": is_comprehensive,
             "is_deep_query": is_deep_query,
             "is_factual": is_factual,
-            "search_limit": search_limit
+            "search_limit": search_limit,
+            "force_graphiti": force_graphiti,
+            "why_tier3": why_tier3
         }
     
     def expand_comprehensive_query(self, query: str) -> List[str]:
@@ -207,7 +230,8 @@ class MemoryRouter:
         user_id: str,
         conversation_id: str,
         query: str,
-        graphiti_search_func: Optional[callable] = None
+        graphiti_search_func: Optional[callable] = None,
+        force_graphiti: bool = False
     ) -> Tuple[str, Dict]:
         """
         Get combined memory context from appropriate tiers.
@@ -221,7 +245,7 @@ class MemoryRouter:
         Returns:
             Tuple of (formatted_context, metadata)
         """
-        classification = self.classify_query(query)
+        classification = self.classify_query(query, force_graphiti=force_graphiti)
         
         context_parts = []
         metadata = {
@@ -229,7 +253,8 @@ class MemoryRouter:
             "working_memory_turns": 0,
             "session_facts": 0,
             "graphiti_memories": 0,
-            "total_cost_estimate": 0  # Token cost estimate
+            "total_cost_estimate": 0,  # Token cost estimate
+            "force_graphiti": classification.get("force_graphiti", False)
         }
         
         # Progressive injection based on tier level
@@ -264,7 +289,7 @@ class MemoryRouter:
                 # Estimate: ~100 tokens for facts
                 metadata["total_cost_estimate"] += 100
         
-        # Tier 3: Graphiti (For deep and comprehensive queries)
+        # Tier 3: Graphiti (gated by intent and env)
         if classification["use_graphiti"] and graphiti_search_func:
             try:
                 search_limit = classification.get("search_limit", 5)
@@ -295,10 +320,21 @@ class MemoryRouter:
                     context_parts.append(f"<knowledge_graph>\n{formatted_graphiti}\n</knowledge_graph>")
                     metadata["graphiti_memories"] = len(graphiti_results)
                     metadata["tiers_used"].append("graphiti")
+                    # Why Tier 3
+                    metadata["why_tier3"] = (
+                        classification.get("is_comprehensive") and "comprehensive_query"
+                    ) or (
+                        classification.get("is_deep_query") and "deep_query_patterns"
+                    ) or (
+                        classification.get("is_factual") and "factual_allowed_by_env"
+                    )
                     # Estimate: ~500 tokens base + 100 per additional result
                     metadata["total_cost_estimate"] += 500 + (len(graphiti_results) * 100)
             except Exception as e:
                 print(f"Graphiti search error: {e}")
+
+        if classification.get("why_tier3") and "why_tier3" not in metadata:
+            metadata["why_tier3"] = classification.get("why_tier3")
         
         # Combine all context
         combined_context = "\n\n".join(context_parts) if context_parts else ""

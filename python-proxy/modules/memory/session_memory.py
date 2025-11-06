@@ -153,11 +153,26 @@ Facts (JSON only):"""
         facts_json = self.redis_client.get(key)
         existing_facts = json.loads(facts_json) if facts_json else []
         
-        # Add new facts with timestamp
+        # TTL policy by category (seconds)
+        ttl_policy = {
+            "biography": 30 * 24 * 3600,     # 30 days
+            "profile": 30 * 24 * 3600,       # 30 days
+            "preference": 7 * 24 * 3600,     # 7 days
+            "schedule": 24 * 3600,           # 1 day
+            "ephemeral": 6 * 3600            # 6 hours
+        }
+
+        now = datetime.now()
+
+        # Add new facts with timestamp and per-fact expiry metadata
         for fact in facts:
+            category = (fact.get("category") or "").lower()
+            fact_ttl = ttl_policy.get(category, self.ttl_seconds)
+            expires_at = (now.timestamp() + fact_ttl)
             existing_facts.append({
                 **fact,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": now.isoformat(),
+                "expires_at": expires_at
             })
         
         # Store with TTL
@@ -193,6 +208,14 @@ Facts (JSON only):"""
             return []
         
         facts = json.loads(facts_json)
+
+        # Filter out expired facts (soft expiration)
+        try:
+            from time import time as _now
+            now_ts = _now()
+            facts = [f for f in facts if not f.get("expires_at") or f.get("expires_at") > now_ts]
+        except Exception:
+            pass
         
         if category:
             facts = [f for f in facts if f.get("category") == category]
