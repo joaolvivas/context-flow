@@ -155,33 +155,72 @@ async def search_memories(request: SearchRequest):
     """
     Search for relevant memories using Graphiti.
     
-    Uses the existing Graphiti instance with your AuraDB connection.
+    Now searches BOTH nodes (entities) and edges (facts) for comprehensive results.
+    Node summaries contain rich biographical/professional information.
     """
     try:
-        # Use Graphiti's search with the configured group_id
-        results = await graphiti_client.search(
+        formatted_results = []
+        
+        # STEP 1: Search for relevant NODES (entities with rich summaries)
+        # This captures biographical info, professional background, etc.
+        from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
+        
+        node_config = NODE_HYBRID_SEARCH_RRF.model_copy(deep=True)
+        node_config.limit = min(request.limit, 5)  # Get top entities
+        
+        node_results = await graphiti_client.search_(
             query=request.query,
-            group_ids=[GROUP_ID],  # Use your configured group_id
-            num_results=request.limit
+            config=node_config,
+            group_ids=[GROUP_ID]
         )
         
-        # Format results for Proxy Orchestrator
-        formatted_results = []
-        for result in results:
+        # Add node summaries (these have the rich context!)
+        for node in node_results.nodes:
             formatted_results.append({
-                "content": result.fact if hasattr(result, 'fact') else str(result),
-                "relevance": result.search_score if hasattr(result, 'search_score') else 0.8,
+                "content": f"[Entity: {node.name}] {node.summary}",
+                "relevance": 0.9,  # Nodes are highly relevant
                 "timestamp": datetime.now().isoformat(),
                 "metadata": {
-                    "uuid": result.uuid if hasattr(result, 'uuid') else None,
+                    "uuid": node.uuid,
+                    "type": "node",
+                    "entity_name": node.name,
                     "group_id": GROUP_ID
                 }
             })
+        
+        # STEP 2: Search for EDGES (facts/relationships)
+        # This captures specific statements and relationships
+        edge_results = await graphiti_client.search(
+            query=request.query,
+            group_ids=[GROUP_ID],
+            num_results=request.limit
+        )
+        
+        # Add edge facts
+        for edge in edge_results:
+            formatted_results.append({
+                "content": edge.fact if hasattr(edge, 'fact') else str(edge),
+                "relevance": edge.search_score if hasattr(edge, 'search_score') else 0.8,
+                "timestamp": datetime.now().isoformat(),
+                "metadata": {
+                    "uuid": edge.uuid if hasattr(edge, 'uuid') else None,
+                    "type": "edge",
+                    "group_id": GROUP_ID
+                }
+            })
+        
+        # Sort by relevance and limit total results
+        formatted_results.sort(key=lambda x: x['relevance'], reverse=True)
+        formatted_results = formatted_results[:request.limit]
+        
+        print(f"✓ Search returned {len(formatted_results)} results ({len(node_results.nodes)} nodes, {len(edge_results)} edges)")
         
         return SearchResponse(results=formatted_results)
         
     except Exception as e:
         print(f"Search error: {e}")
+        import traceback
+        traceback.print_exc()
         # Graceful degradation - return empty results
         return SearchResponse(results=[])
 
