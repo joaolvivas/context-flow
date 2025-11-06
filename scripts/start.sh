@@ -22,7 +22,7 @@ fi
 # Function to start HTTP Bridge
 start_bridge() {
     echo -e "${BLUE}Starting HTTP Bridge (Port 5000)...${NC}"
-    cd "$(dirname "$0")"
+    cd "$(dirname "$0")/.."
     
     # Use existing Graphiti venv
     if [ -f "/Users/joaolucas/graphiti/mcp_server/.venv/bin/activate" ]; then

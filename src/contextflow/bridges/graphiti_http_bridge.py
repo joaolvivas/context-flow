@@ -60,15 +60,36 @@ from graphiti_core.llm_client import OpenAIClient
 from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.embedder import OpenAIEmbedder, OpenAIEmbedderConfig
 
+
+class PatchedOpenAIClient(OpenAIClient):
+    """Drop unsupported reasoning payloads before hitting OpenAI."""
+
+    async def _create_structured_completion(
+        self,
+        model,
+        messages,
+        temperature,
+        max_tokens,
+        response_model,
+        **kwargs,
+    ):
+        """Match the parent implementation while ignoring unsupported kwargs (e.g. reasoning)."""
+        return await self.client.beta.chat.completions.parse(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_model,  # type: ignore[arg-type]
+        )
+
 # Create LLM config - use standard model to avoid reasoning parameter
-import os
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 llm_config = LLMConfig(
     api_key=OPENAI_API_KEY,
     model="gpt-4o",  # gpt-4o supports all parameters
     temperature=0.0
 )
-llm_client = OpenAIClient(config=llm_config)
+llm_client = PatchedOpenAIClient(config=llm_config)
 
 # Create embedder config
 embedder_config = OpenAIEmbedderConfig(

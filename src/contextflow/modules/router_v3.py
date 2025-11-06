@@ -268,8 +268,16 @@ def memory_route_v3(
             logger.info(f"Memory tiers used: {metadata['tiers_used']}")
             logger.info(f"Cost estimate: {metadata['total_cost_estimate']} tokens")
 
+            # DEBUG: Log context retrieval
+            logger.info(f"DEBUG - tiered_context length: {len(tiered_context) if tiered_context else 0}")
+            if tiered_context:
+                logger.info(f"DEBUG - tiered_context preview: {tiered_context[:200]}")
+
         # Enrich messages with tiered context
         enriched_messages = enrich_messages_with_tiered_context(messages, tiered_context)
+
+        # DEBUG: Log enrichment
+        logger.info(f"DEBUG - enriched_messages count: {len(enriched_messages)}")
         
         # Count memory tokens
         if tiered_context:
