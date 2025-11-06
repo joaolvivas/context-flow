@@ -142,24 +142,85 @@ def route_to_llm(
         return response.json()
 
 
+def get_memory_system_prompt() -> str:
+    """
+    Generate intelligent system prompt that explains the memory system to the LLM.
+
+    This makes the LLM aware of its memory capabilities and how to use them effectively.
+
+    Returns:
+        System prompt explaining the 3-tier memory architecture
+    """
+    return """You are an AI assistant with an advanced memory system that helps you provide personalized responses.
+
+## Memory System
+
+You have access to a 3-tier memory architecture:
+
+**Tier 1 - Working Memory** (Recent Context)
+- Last 10-20 conversation turns
+- Provides immediate context for ongoing discussions
+- Always available for continuity
+
+**Tier 2 - Session Memory** (Extracted Facts)
+- Key facts extracted from conversations
+- Categories: preferences, goals, tools, people, teams, projects, hobbies
+- Helps you personalize responses without repeating questions
+
+**Tier 3 - Long-term Memory** (Historical Knowledge)
+- Deep memories from past interactions stored in Neo4j graph database
+- Graph-based connections between concepts
+- Retrieved automatically when relevant to current query
+
+## How to Use Your Memory
+
+**IMPORTANT GUIDELINES:**
+
+1. **Use memories naturally** - Don't say "Based on the memory provided..." or "According to the context..." - just use the information as if you naturally remember it
+
+2. **Don't claim ignorance when you have information** - If memory context is provided above, USE IT. Never say "I don't have that information" and then contradict yourself
+
+3. **Be specific and confident** - Reference actual details from memories when relevant (names, dates, projects, preferences)
+
+4. **The memory system is automatic** - You don't need to ask to "access Tier 3" or "call Neo4j" - it's already done for you. The context above IS the result of memory retrieval
+
+5. **Update gracefully** - If user corrects information, acknowledge and use the new information (it will be stored automatically)
+
+6. **Admit real gaps honestly** - Only say you don't have information if it's truly NOT in the context provided above
+
+## Context Provided
+
+The context below contains relevant memories retrieved from your 3-tier system. This is information you KNOW about the user - use it to personalize your responses.
+
+Remember: You're having a conversation with someone you know, not a stranger. Act accordingly.
+
+---"""
+
+
 def enrich_messages_with_tiered_context(
     messages: List[Dict],
     tiered_context: str
 ) -> List[Dict]:
     """
-    Inject tiered memory context into messages.
-    
+    Inject tiered memory context into messages with intelligent system prompt.
+
     Args:
         messages: Original messages
         tiered_context: Context from 3-tier system
-    
+
     Returns:
-        Enriched messages
+        Enriched messages with system prompt + memory context
     """
     if not tiered_context:
         return messages
 
     enriched = messages.copy()
+
+    # Get intelligent system prompt
+    system_prompt = get_memory_system_prompt()
+
+    # Combine system prompt with actual memory context
+    full_system_content = f"{system_prompt}\n\n## Your Memory Context:\n\n{tiered_context}"
 
     # Find existing system message
     system_idx = None
@@ -169,13 +230,14 @@ def enrich_messages_with_tiered_context(
             break
 
     if system_idx is not None:
-        # Append to existing system message
-        enriched[system_idx]["content"] += f"\n\n{tiered_context}"
+        # Preserve user's original system message, append our memory system prompt
+        original_content = enriched[system_idx]["content"]
+        enriched[system_idx]["content"] = f"{original_content}\n\n{full_system_content}"
     else:
-        # Insert new system message
+        # Insert new system message with memory awareness
         enriched.insert(0, {
             "role": "system",
-            "content": f"You have access to the user's context and memory.\n\n{tiered_context}"
+            "content": full_system_content
         })
 
     return enriched
