@@ -43,8 +43,10 @@ slowapi==0.1.9
 # LangGraph Agent Framework
 langgraph==0.2.45
 langgraph-checkpoint==2.0.2
+langgraph-checkpoint-redis==2.0.0  # Redis store for LangMem
 langchain-core>=0.3.17,<0.4.0
 langchain-openai==0.2.8
+langmem==0.1.1  # Official LangMem SDK for long-term memory
 
 # Testing
 pytest==8.3.3

@@ -1,15 +1,21 @@
 """
-Memory Router V4 - LangGraph Orchestrated Agent
+Memory Router V4 - LangGraph Orchestrated Agent with LangMem
 
-Agent-based orchestration using LangGraph for intelligent memory routing.
+Agent-based orchestration using LangGraph + LangMem for intelligent memory routing.
 
 Architecture:
 - Entry Node: Parse OpenAI-compatible request
-- Classify Node: Determine memory tier requirements
-- Parallel Retrieval: Fetch Tier 1+2+3 concurrently
-- Context Adapter: Optimize context by model (GPT-4o vs local)
+- Classify Node: Determine memory tier requirements (preserves intelligent routing)
+- Parallel Retrieval: Fetch from LangMem namespaces concurrently
+- Context Adapter: Optimize context by model (GPT-4o vs local) + filter negatives
 - Generate Node: Route to LLM (local/cloud)
-- Output Node: Format OpenAI-compatible response
+- Output Node: Format OpenAI-compatible response + async storage
+
+NEW - LangMem Integration:
+- Unified RedisStore with 3 namespaces: conversations, facts, memories
+- Semantic vector search (vs keyword matching)
+- Native async operations (vs background threads)
+- Preserves: query classification, negative filtering, progressive injection
 
 Maintains full compatibility with Msty.ai and existing /v1/chat/completions endpoint.
 """
@@ -34,6 +40,7 @@ from modules.router_v3 import (
 from modules.backends import get_backend
 from modules.token_counter import count_message_tokens
 from modules.conversation_cache import get_cache
+from modules.memory.langmem_store import get_langmem_store  # NEW: LangMem integration
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -243,80 +250,78 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
 
     state["metadata"]["cache_hit"] = False
 
-    memory_router = get_memory_system()
+    # NEW: Use LangMemStore instead of manual tiers
+    langmem_store = get_langmem_store()
 
-    # Define async retrieval functions
+    # Define async retrieval functions using LangMemStore
     async def get_tier1():
+        """Retrieve recent conversation turns from LangMem (conversations namespace)"""
         if not classification["use_working_memory"]:
             return ""
 
-        context = memory_router.working_memory.format_as_context(
+        context = await langmem_store.format_turns_as_context(
             state["user_id"],
             state["conversation_id"],
             limit=20
         )
-        turns = len(memory_router.working_memory.get_recent_turns(
+        turns = await langmem_store.get_recent_turns(
             state["user_id"],
             state["conversation_id"],
             limit=20
-        ))
-        state["metadata"]["tier_1_turns"] = turns
-        state["metadata"]["tiers_used"].append("Tier 1 (Working)")
+        )
+        state["metadata"]["tier_1_turns"] = len(turns)
+        state["metadata"]["tiers_used"].append("Tier 1 (LangMem Conversations)")
 
-        logger.info(f"  ✓ Tier 1: {turns} turns")
+        logger.info(f"  ✓ Tier 1 (LangMem): {len(turns)} turns")
         return context
 
     async def get_tier2():
+        """Retrieve session facts from LangMem (facts namespace) with semantic search"""
         if not classification["use_session_facts"]:
             return ""
 
-        context = memory_router.session_memory.format_as_context(
+        context = await langmem_store.format_facts_as_context(
             state["user_id"],
             state["conversation_id"],
             query=state["query"],
             limit=10
         )
-        facts = memory_router.session_memory.search_facts(
+        facts = await langmem_store.search_facts(
             state["user_id"],
             state["conversation_id"],
             state["query"],
             limit=10
         )
         state["metadata"]["tier_2_facts"] = len(facts)
-        state["metadata"]["tiers_used"].append("Tier 2 (Session)")
+        state["metadata"]["tiers_used"].append("Tier 2 (LangMem Facts)")
 
-        logger.info(f"  ✓ Tier 2: {len(facts)} facts")
+        logger.info(f"  ✓ Tier 2 (LangMem): {len(facts)} facts (semantic search)")
         return context
 
     async def get_tier3():
+        """Retrieve long-term memories from LangMem (memories namespace) with semantic search"""
         if not classification["use_graphiti"]:
             return ""
 
-        # Initialize backend
-        backend = get_backend(
-            state["backend_type"],
-            **state.get("backend_config", {})
-        )
-
-        # Search Graphiti
-        results = backend.search(
-            state["query"],
+        # Use LangMem semantic search instead of Graphiti
+        memories = await langmem_store.search_memories(
             state["user_id"],
+            state["query"],
             limit=classification["search_limit"]
         )
 
-        if results:
+        if memories:
             context_parts = []
-            for result in results:
-                content = result.get("content", "")
+            for memory in memories:
+                content = memory.get("content", "")
                 if content:
                     context_parts.append(content)
 
             context = "\n\n".join(context_parts)
-            state["metadata"]["tier_3_memories"] = len(results)
-            state["metadata"]["tiers_used"].append("Tier 3 (Graphiti)")
+            state["metadata"]["tier_3_memories"] = len(memories)
+            state["metadata"]["tiers_used"].append("Tier 3 (LangMem Memories)")
 
-            logger.info(f"  ✓ Tier 3: {len(results)} memories")
+            logger.info(f"  ✓ Tier 3 (LangMem): {len(memories)} memories (semantic search)")
             return context
 
         return ""
@@ -587,12 +592,14 @@ def output_node(state: AgentState) -> AgentState:
 
 def _store_conversation_turn_async(state: AgentState):
     """
-    Store conversation turn in background thread (Tier 1+2+3).
+    Store conversation turn using LangMemStore (async, non-blocking).
 
-    Same logic as V3 for backward compatibility.
+    NEW in LangMem migration:
+    - Uses unified LangMemStore with 3 namespaces (conversations, facts, memories)
+    - Semantic vector search instead of keyword matching
+    - Native async operations (no threading needed)
+    - Preserves negative response filtering
     """
-    import threading
-
     # Extract assistant response
     assistant_response = state["llm_response"].get("choices", [{}])[0].get("message", {}).get("content", "")
 
@@ -613,8 +620,8 @@ def _store_conversation_turn_async(state: AgentState):
     backend_type = state["backend_type"]
     backend_config = state["backend_config"]
 
-    # Store in background thread
-    def store_in_background():
+    # Store using async LangMemStore (no background thread needed - async is non-blocking)
+    async def store_in_langmem():
         try:
             # FILTER: Skip storing negative/unhelpful responses
             if is_negative_response(assistant_response):
@@ -622,52 +629,54 @@ def _store_conversation_turn_async(state: AgentState):
                 logger.debug(f"Negative response preview: {assistant_response[:100]}...")
                 return
 
-            # Get memory system
-            memory_router = get_memory_system()
+            # Get LangMem store
+            langmem_store = get_langmem_store()
 
-            # Store across Tier 1 and Tier 2
-            # Tier 1 always stores (for conversation continuity)
-            # Tier 2/3 only store if response is positive/helpful
-            storage_meta = memory_router.store_conversation_turn(
-                user_id=user_id,
-                conversation_id=conversation_id,
-                user_message=query,
-                assistant_response=assistant_response,
-                extract_facts=True  # Enable Tier 2 fact extraction
-            )
+            # Store Tier 1: Conversation turns (always stored for continuity)
+            await langmem_store.add_turn(user_id, conversation_id, "user", query)
+            await langmem_store.add_turn(user_id, conversation_id, "assistant", assistant_response)
+            logger.info(f"✅ Tier 1 (LangMem): Conversation turns stored")
 
-            logger.info(f"✅ Tier 1 stored: {storage_meta['working_memory_stored']}")
-            logger.info(f"✅ Tier 2 facts: {storage_meta['session_facts_extracted']}")
-
-            # Store in Tier 3 (Graphiti) - queued
-            # Only if response is positive/helpful
+            # Store Tier 2: Extract and store facts (only if positive response)
+            # Use old SessionMemory for fact extraction (LLM-based)
+            # Then store extracted facts in LangMem
             try:
-                backend = get_backend(backend_type, **backend_config)
+                memory_router = get_memory_system()
+                facts = memory_router.session_memory.extract_facts(query, assistant_response)
 
+                if facts:
+                    facts_stored = await langmem_store.store_facts(user_id, conversation_id, facts)
+                    logger.info(f"✅ Tier 2 (LangMem): {facts_stored} facts stored")
+                else:
+                    logger.info(f"  ℹ️ Tier 2: No facts extracted")
+
+            except Exception as e:
+                logger.warning(f"Tier 2 fact extraction error: {e}")
+
+            # Store Tier 3: Long-term semantic memory (only if positive response)
+            try:
                 memory_content = f"User: {query}\nAssistant: {assistant_response}"
-
-                chunks = backend.store(
-                    memory_content,
+                memory_id = await langmem_store.store_memory(
                     user_id,
+                    memory_content,
                     metadata={
                         "timestamp": datetime.now().isoformat(),
                         "model": model,
                         "conversation_id": conversation_id
                     }
                 )
-                logger.info(f"✅ Tier 3 queued: {chunks} chunks")
+                logger.info(f"✅ Tier 3 (LangMem): Memory stored with ID {memory_id}")
 
             except Exception as e:
                 logger.error(f"Tier 3 storage error: {e}")
 
         except Exception as e:
-            logger.error(f"Background storage error: {e}", exc_info=True)
+            logger.error(f"LangMem storage error: {e}", exc_info=True)
 
-    # Start background thread
-    storage_thread = threading.Thread(target=store_in_background, daemon=True)
-    storage_thread.start()
+    # Schedule async storage (non-blocking)
+    asyncio.create_task(store_in_langmem())
 
-    logger.info("💾 Memory storage queued in background")
+    logger.info("💾 LangMem storage scheduled (async)")
 
 
 # ============================================================================
