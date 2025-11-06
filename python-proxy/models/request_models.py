@@ -7,10 +7,12 @@ from pydantic import BaseModel, Field
 
 class ChatMessage(BaseModel):
     """Mensagem individual no chat"""
-    role: Literal["system", "user", "assistant", "function"]
+    role: Literal["system", "user", "assistant", "function", "tool"]
     content: Optional[str] = None
     name: Optional[str] = None
     function_call: Optional[Dict[str, Any]] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_call_id: Optional[str] = None
 
 
 class FunctionDefinition(BaseModel):
