@@ -66,6 +66,7 @@ class GraphitiBackend(MemoryBackend):
                 json={
                     "query": query,
                     "user_id": user_id,
+                    "group_id": user_id,  # Use user_id as group_id for memory namespace
                     "limit": limit
                 },
                 timeout=timeout

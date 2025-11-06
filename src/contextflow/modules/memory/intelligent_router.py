@@ -190,7 +190,7 @@ class MemoryRouter:
         # Tier 3: Graphiti (Only for deep queries)
         if classification["use_graphiti"] and graphiti_search_func:
             try:
-                graphiti_results = graphiti_search_func(query, user_id, limit=3)
+                graphiti_results = graphiti_search_func(query, user_id, limit=10)
                 if graphiti_results:
                     formatted_graphiti = self._format_graphiti_results(graphiti_results)
                     context_parts.append(f"<knowledge_graph>\n{formatted_graphiti}\n</knowledge_graph>")
