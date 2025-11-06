@@ -78,6 +78,42 @@ def get_memory_system() -> MemoryRouter:
     return _memory_router
 
 
+def _detect_local_provider_url(model: str) -> str:
+    """
+    Detect local provider URL based on model name or environment variables.
+
+    Checks model-specific env vars first, then falls back to generic LOCAL_MODEL_URL.
+
+    Supported env vars:
+    - LOCAL_MISTRAL_URL: For mistral models
+    - LOCAL_LLAMA_URL: For llama models
+    - LOCAL_QWEN_URL: For qwen models
+    - LOCAL_COGITO_URL: For cogito models
+    - LOCAL_LAS_URL: For LAS models
+    - LOCAL_MODEL_URL: Generic fallback
+    """
+    model_lower = model.lower()
+
+    # Check model-specific URLs
+    if "mistral" in model_lower and os.getenv("LOCAL_MISTRAL_URL"):
+        return os.getenv("LOCAL_MISTRAL_URL")
+
+    if "llama" in model_lower and os.getenv("LOCAL_LLAMA_URL"):
+        return os.getenv("LOCAL_LLAMA_URL")
+
+    if "qwen" in model_lower and os.getenv("LOCAL_QWEN_URL"):
+        return os.getenv("LOCAL_QWEN_URL")
+
+    if "cogito" in model_lower and os.getenv("LOCAL_COGITO_URL"):
+        return os.getenv("LOCAL_COGITO_URL")
+
+    if "las" in model_lower and os.getenv("LOCAL_LAS_URL"):
+        return os.getenv("LOCAL_LAS_URL")
+
+    # Generic fallback
+    return os.getenv("LOCAL_MODEL_URL", "http://localhost:11434/v1")
+
+
 def route_to_llm(
     messages: List[Dict],
     model: str,
@@ -97,7 +133,11 @@ def route_to_llm(
 
     Supports dual routing:
     - Real API key → Forward to remote provider (OpenAI, Claude, etc.)
-    - "local-dev" or empty → Route to local MLX model at localhost:11964
+    - "local-dev" or empty → Route to local model (Ollama, MLX, etc.)
+
+    Local routing respects model-specific environment variables:
+    - LOCAL_MISTRAL_URL, LOCAL_LLAMA_URL, LOCAL_QWEN_URL, etc.
+    - Defaults to LOCAL_MODEL_URL or http://localhost:11434/v1
 
     Passes through all OpenAI parameters including tools/functions for MCP compatibility.
     """
@@ -105,13 +145,13 @@ def route_to_llm(
     is_local = api_key in ["local-dev", "", None]
 
     if is_local:
-        # Route to local MLX endpoint
-        provider_url = "http://localhost:11964/v1"
-        model = "mistral:latest"
+        # Route to local endpoint (detect URL based on model name)
+        provider_url = _detect_local_provider_url(model)
         api_key = "local-dev"
-        logger.info(f"Routing to LOCAL MLX model at {provider_url}")
+        # Keep the requested model name (don't override!)
+        logger.info(f"Routing to LOCAL model '{model}' at {provider_url}")
     else:
-        logger.info(f"Routing to REMOTE provider: {provider_url}")
+        logger.info(f"Routing to REMOTE provider: {provider_url} (model: {model})")
 
     headers = {
         "Authorization": f"Bearer {api_key}",

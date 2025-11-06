@@ -31,6 +31,7 @@ from modules.router_v3 import (
 )
 from modules.backends import get_backend
 from modules.token_counter import count_message_tokens
+from modules.conversation_cache import get_cache
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -187,6 +188,7 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
     Parallel Retrieval Node - Fetch from all tiers concurrently.
 
     Executes Tier 1, 2, and 3 retrieval in parallel for minimum latency.
+    Supports caching for faster repeated queries.
     """
     logger.info("🔍 Parallel Retrieval Node: Fetching memories")
 
@@ -199,6 +201,45 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
         state["tier3_context"] = ""
         state["combined_context"] = ""
         return state
+
+    # Check cache first (if enabled)
+    cache_enabled = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+    cache_hit = False
+    memory_metadata = {}
+
+    if cache_enabled:
+        try:
+            cache = get_cache(
+                max_size=int(os.getenv("CACHE_MAX_SIZE", "100")),
+                ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "900")),
+                similarity_threshold=float(os.getenv("CACHE_SIMILARITY_THRESHOLD", "0.85"))
+            )
+
+            cached_result = cache.get(state["conversation_id"], state["query"], state["model"])
+            if cached_result:
+                combined_context, memory_metadata = cached_result
+                cache_hit = True
+
+                # Parse cached context back into tier contexts
+                state["combined_context"] = combined_context
+                state["tier1_context"] = ""  # Not separated in cache
+                state["tier2_context"] = ""
+                state["tier3_context"] = ""
+
+                # Update metadata
+                state["metadata"]["cache_hit"] = True
+                state["metadata"]["tiers_used"] = memory_metadata.get("tiers_used", [])
+                state["metadata"]["tier_1_turns"] = memory_metadata.get("working_memory_turns", 0)
+                state["metadata"]["tier_2_facts"] = memory_metadata.get("session_facts", 0)
+                state["metadata"]["tier_3_memories"] = memory_metadata.get("graphiti_memories", 0)
+
+                logger.info(f"  ✓ Cache HIT for conversation {state['conversation_id']}")
+                return state
+
+        except Exception as e:
+            logger.warning(f"Cache check failed: {e}")
+
+    state["metadata"]["cache_hit"] = False
 
     memory_router = get_memory_system()
 
@@ -301,6 +342,36 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
     state["combined_context"] = "\n\n".join(context_parts)
 
     logger.info(f"  Combined context: {len(state['combined_context'])} chars")
+
+    # Store in cache for future queries (if enabled and not a cache hit)
+    if cache_enabled and not cache_hit and state["combined_context"]:
+        try:
+            cache = get_cache(
+                max_size=int(os.getenv("CACHE_MAX_SIZE", "100")),
+                ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "900")),
+                similarity_threshold=float(os.getenv("CACHE_SIMILARITY_THRESHOLD", "0.85"))
+            )
+
+            # Build metadata for cache
+            cache_metadata = {
+                "tiers_used": state["metadata"]["tiers_used"],
+                "working_memory_turns": state["metadata"].get("tier_1_turns", 0),
+                "session_facts": state["metadata"].get("tier_2_facts", 0),
+                "graphiti_memories": state["metadata"].get("tier_3_memories", 0)
+            }
+
+            cache.set(
+                state["conversation_id"],
+                state["query"],
+                state["combined_context"],
+                cache_metadata,
+                state["model"]
+            )
+
+            logger.info(f"  ✓ Stored in cache for conversation {state['conversation_id']}")
+
+        except Exception as e:
+            logger.warning(f"Cache write failed: {e}")
 
     return state
 
@@ -454,6 +525,7 @@ def output_node(state: AgentState) -> AgentState:
     Output Node - Format final OpenAI-compatible response.
 
     Adds memory metadata for diagnostic headers.
+    Stores conversation turn in memory tiers (Tier 1+2+3).
     """
     logger.info("📤 Output Node: Formatting response")
 
@@ -470,7 +542,87 @@ def output_node(state: AgentState) -> AgentState:
     logger.info(f"  Processing time: {processing_time:.0f}ms")
     logger.info(f"  Tiers used: {', '.join(state['metadata']['tiers_used']) or 'None'}")
 
+    # Store conversation turn in memory (Tier 1+2+3)
+    if state["memory_enabled"] and state["query"] and not state["stream"]:
+        _store_conversation_turn_async(state)
+
     return state
+
+
+def _store_conversation_turn_async(state: AgentState):
+    """
+    Store conversation turn in background thread (Tier 1+2+3).
+
+    Same logic as V3 for backward compatibility.
+    """
+    import threading
+
+    # Extract assistant response
+    assistant_response = state["llm_response"].get("choices", [{}])[0].get("message", {}).get("content", "")
+
+    if not assistant_response:
+        logger.warning("No assistant response to store")
+        return
+
+    # Truncate very long responses to prevent token limit issues
+    max_content_length = 1000
+    if len(assistant_response) > max_content_length:
+        assistant_response = assistant_response[:max_content_length] + "... [truncated]"
+
+    # Capture variables for closure
+    user_id = state["user_id"]
+    conversation_id = state["conversation_id"]
+    query = state["query"]
+    model = state["model"]
+    backend_type = state["backend_type"]
+    backend_config = state["backend_config"]
+
+    # Store in background thread
+    def store_in_background():
+        try:
+            # Get memory system
+            memory_router = get_memory_system()
+
+            # Store across Tier 1 and Tier 2
+            storage_meta = memory_router.store_conversation_turn(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                user_message=query,
+                assistant_response=assistant_response,
+                extract_facts=True  # Enable Tier 2 fact extraction
+            )
+
+            logger.info(f"💾 Tier 1 stored: {storage_meta['working_memory_stored']}")
+            logger.info(f"💾 Tier 2 facts: {storage_meta['session_facts_extracted']}")
+
+            # Store in Tier 3 (Graphiti) - queued
+            try:
+                backend = get_backend(backend_type, **backend_config)
+
+                memory_content = f"User: {query}\nAssistant: {assistant_response}"
+
+                chunks = backend.store(
+                    memory_content,
+                    user_id,
+                    metadata={
+                        "timestamp": datetime.now().isoformat(),
+                        "model": model,
+                        "conversation_id": conversation_id
+                    }
+                )
+                logger.info(f"💾 Tier 3 queued: {chunks} chunks")
+
+            except Exception as e:
+                logger.error(f"Tier 3 storage error: {e}")
+
+        except Exception as e:
+            logger.error(f"Background storage error: {e}", exc_info=True)
+
+    # Start background thread
+    storage_thread = threading.Thread(target=store_in_background, daemon=True)
+    storage_thread.start()
+
+    logger.info("💾 Memory storage queued in background")
 
 
 # ============================================================================
