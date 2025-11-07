@@ -290,7 +290,7 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
     async def get_tier2():
         """Retrieve session facts from LangMem (facts namespace) with semantic search"""
         if not classification["use_session_facts"]:
-            return ""
+            return "", []
 
         raw_context = await langmem_store.format_facts_as_context(
             state["user_id"],
@@ -307,9 +307,10 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
         )
         state["metadata"]["tier_2_facts"] = len(facts)
         state["metadata"]["tiers_used"].append("Tier 2 (LangMem Facts)")
+        state["metadata"]["tier_2_fact_details"] = facts
 
         logger.info(f"  ✓ Tier 2 (LangMem): {len(facts)} facts (semantic search)")
-        return context
+        return context, facts
 
     async def get_tier3():
         """Retrieve long-term memories from LangMem and Graphiti when requested."""
@@ -399,12 +400,38 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
         return ""
         return ""
 
-    # Execute all retrieval tasks in parallel
-    tier1, tier2, tier3 = await asyncio.gather(
-        get_tier1(),
-        get_tier2(),
-        get_tier3()
-    )
+    # Execute Tier 1 and Tier 2 retrieval first (can run concurrently)
+    tier1_task = asyncio.create_task(get_tier1())
+    tier2_task = asyncio.create_task(get_tier2())
+
+    tier1 = await tier1_task
+    tier2, tier2_facts = await tier2_task
+
+    # Heuristic: skip Tier 3 for simple factual queries when Tier 1/2 already answer
+    tier3 = ""
+    skip_tier3 = False
+    if (
+        classification.get("use_graphiti")
+        and not classification.get("force_graphiti")
+        and not state.get("force_graphiti")
+    ):
+        word_limit = int(os.getenv("GRAPHITI_SIMPLE_QUERY_WORD_LIMIT", "12"))
+        relevance_threshold = float(os.getenv("GRAPHITI_FACT_CONFIDENCE", "0.88"))
+        query_word_count = len(state["query"].split())
+        high_conf_fact = any(
+            (fact or {}).get("relevance", 0) >= relevance_threshold for fact in tier2_facts
+        )
+        has_recent_context = bool(tier1.strip())
+
+        if query_word_count <= word_limit and (high_conf_fact or (has_recent_context and tier2_facts)):
+            skip_tier3 = True
+
+    if skip_tier3:
+        classification["use_graphiti"] = False
+        state["metadata"]["why_tier3_skipped"] = "simple_fact_confident"
+        logger.info("  ⏭️ Skipping Tier 3: confident answer in Tier 1/2")
+    else:
+        tier3 = await get_tier3()
 
     state["tier1_context"] = tier1
     state["tier2_context"] = tier2

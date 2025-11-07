@@ -34,135 +34,6 @@ _session_memory = None
 _memory_router = None
 
 
-# ============================================================================
-# HELPER FUNCTIONS - Negative Response Detection
-# ============================================================================
-
-def is_negative_response(text: str) -> bool:
-    """
-    Detect if a response is negative/unhelpful and should NOT be stored in memory.
-
-    Negative responses include:
-    - "I don't have information about..."
-    - "Não tenho informações sobre..."
-    - "Error generating response..."
-    - "Desculpe, não sei..."
-    - Generic apologies without useful content
-
-    Args:
-        text: Assistant's response text
-
-    Returns:
-        True if response is negative/unhelpful, False if it contains useful information
-    """
-    if not text or not text.strip():
-        return True  # Empty responses are negative
-
-    text_lower = text.lower().strip()
-
-    # Negative patterns (Portuguese + English)
-    negative_patterns = [
-        # Direct "no information" statements
-        "não tenho informação",
-        "não tenho informações",
-        "não há informação",
-        "não há informações",
-        "does not have information",
-        "do not have information",
-        "don't have information",
-        "i don't have",
-        "não sei",
-        "i don't know",
-        "no information about",
-        "sem informação",
-        "without information",
-
-        # Error patterns
-        "error generating",
-        "erro ao gerar",
-        "failed to generate",
-        "falha ao gerar",
-        "error in agent",
-        "erro no agente",
-
-        # Generic unhelpful responses
-        "desculpe, mas não",
-        "sorry, but i don't",
-        "sorry, i don't",
-        "infelizmente não",
-        "unfortunately i don't",
-        "atualmente não",
-        "currently don't have",
-
-        # Specific negative contexts
-        "no specific information",
-        "nenhuma informação específica",
-        "no details about",
-        "sem detalhes sobre",
-        "cannot provide information",
-        "não posso fornecer informação",
-        "informação não fornecida",
-        "not provided",
-        "no information available",
-        "sem dados disponíveis",
-        "não existe informação"
-    ]
-
-    # Check for negative patterns
-    for pattern in negative_patterns:
-        if pattern in text_lower:
-            return True
-
-    # Additional heuristic: if response is very short and contains "não" or "sorry"
-    if len(text.split()) < 15:  # Very short responses
-        if any(word in text_lower for word in ["não", "sorry", "desculpe", "unfortunately", "infelizmente"]):
-            # Likely a negative response
-            return True
-
-    return False
-
-
-def filter_negative_content(content: str) -> str:
-    """
-    Filter out negative/unhelpful sentences from context content.
-
-    Used to clean up Tier 2/3 facts before injection into LLM context.
-
-    Args:
-        content: Context text (can be multi-line, multi-sentence)
-
-    Returns:
-        Filtered content with negative sentences removed
-    """
-    if not content or not content.strip():
-        return ""
-
-    # Split by common sentence delimiters
-    lines = []
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        # Some entries contain multiple sentences separated by ". "
-        segments = [seg.strip() for seg in line.replace(" - ", ". ").split(".") if seg.strip()]
-
-        keep_segments = []
-        for seg in segments:
-            if not is_negative_response(seg):
-                keep_segments.append(seg)
-
-        if keep_segments:
-            cleaned_line = ". ".join(keep_segments)
-            # Restore original trailing punctuation if the line had it
-            if line.endswith(".") and not cleaned_line.endswith("."):
-                cleaned_line += "."
-            lines.append(cleaned_line)
-
-    filtered = "\n".join(lines).strip()
-    return filtered
-
-
 def get_memory_system() -> MemoryRouter:
     """
     Get or initialize the 3-tier memory system.
@@ -207,42 +78,6 @@ def get_memory_system() -> MemoryRouter:
     return _memory_router
 
 
-def _detect_local_provider_url(model: str) -> str:
-    """
-    Detect local provider URL based on model name or environment variables.
-
-    Checks model-specific env vars first, then falls back to generic LOCAL_MODEL_URL.
-
-    Supported env vars:
-    - LOCAL_MISTRAL_URL: For mistral models
-    - LOCAL_LLAMA_URL: For llama models
-    - LOCAL_QWEN_URL: For qwen models
-    - LOCAL_COGITO_URL: For cogito models
-    - LOCAL_LAS_URL: For LAS models
-    - LOCAL_MODEL_URL: Generic fallback
-    """
-    model_lower = model.lower()
-
-    # Check model-specific URLs
-    if "mistral" in model_lower and os.getenv("LOCAL_MISTRAL_URL"):
-        return os.getenv("LOCAL_MISTRAL_URL")
-
-    if "llama" in model_lower and os.getenv("LOCAL_LLAMA_URL"):
-        return os.getenv("LOCAL_LLAMA_URL")
-
-    if "qwen" in model_lower and os.getenv("LOCAL_QWEN_URL"):
-        return os.getenv("LOCAL_QWEN_URL")
-
-    if "cogito" in model_lower and os.getenv("LOCAL_COGITO_URL"):
-        return os.getenv("LOCAL_COGITO_URL")
-
-    if "las" in model_lower and os.getenv("LOCAL_LAS_URL"):
-        return os.getenv("LOCAL_LAS_URL")
-
-    # Generic fallback
-    return os.getenv("LOCAL_MODEL_URL", "http://localhost:11434/v1")
-
-
 def route_to_llm(
     messages: List[Dict],
     model: str,
@@ -262,11 +97,7 @@ def route_to_llm(
 
     Supports dual routing:
     - Real API key → Forward to remote provider (OpenAI, Claude, etc.)
-    - "local-dev" or empty → Route to local model (Ollama, MLX, etc.)
-
-    Local routing respects model-specific environment variables:
-    - LOCAL_MISTRAL_URL, LOCAL_LLAMA_URL, LOCAL_QWEN_URL, etc.
-    - Defaults to LOCAL_MODEL_URL or http://localhost:11434/v1
+    - "local-dev" or empty → Route to local MLX model at localhost:11964
 
     Passes through all OpenAI parameters including tools/functions for MCP compatibility.
     """
@@ -274,13 +105,13 @@ def route_to_llm(
     is_local = api_key in ["local-dev", "", None]
 
     if is_local:
-        # Route to local endpoint (detect URL based on model name)
-        provider_url = _detect_local_provider_url(model)
+        # Route to local MLX endpoint
+        provider_url = "http://localhost:11964/v1"
+        model = "mistral:latest"
         api_key = "local-dev"
-        # Keep the requested model name (don't override!)
-        logger.info(f"Routing to LOCAL model '{model}' at {provider_url}")
+        logger.info(f"Routing to LOCAL MLX model at {provider_url}")
     else:
-        logger.info(f"Routing to REMOTE provider: {provider_url} (model: {model})")
+        logger.info(f"Routing to REMOTE provider: {provider_url}")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -312,13 +143,11 @@ def route_to_llm(
     # Forward any additional parameters
     payload.update(extra_params)
 
-    request_timeout = 180 if is_local else 60
-
     response = requests.post(
         f"{provider_url}/chat/completions",
         headers=headers,
         json=payload,
-        timeout=request_timeout,
+        timeout=60,
         stream=stream
     )
 
@@ -336,7 +165,8 @@ def get_memory_system_prompt() -> str:
     
     Optimized from 86 lines to 30 lines, saving ~400 tokens per request.
     """
-    return """You have automatic access to personalized context from 3 memory tiers:
+    return """You are **Lucas**, the dedicated personal assistant and orchestrator for João Lucas Vivas.
+You have automatic access to personalized context from 3 memory tiers:
 
 **Working Memory**: Last 10 conversation turns (always included)
 **Session Facts**: Key information from past conversations  
@@ -604,15 +434,7 @@ def memory_route_v3(
             # Store in background thread
             def store_in_background():
                 try:
-                    # FILTER: Skip storing negative/unhelpful responses
-                    if is_negative_response(assistant_response):
-                        logger.info(f"⚠️ Skipping storage: Response is negative/unhelpful")
-                        logger.debug(f"Negative response preview: {assistant_response[:100]}...")
-                        return
-
                     # Store across Tier 1 and Tier 2
-                    # Tier 1 always stores (for conversation continuity)
-                    # Tier 2/3 only store if response is positive/helpful
                     storage_meta = memory_router.store_conversation_turn(
                         user_id=user_id,
                         conversation_id=conversation_id,
@@ -620,14 +442,13 @@ def memory_route_v3(
                         assistant_response=assistant_response,
                         extract_facts=True  # Enable Tier 2 fact extraction
                     )
-
-                    logger.info(f"✅ Tier 1 stored: {storage_meta['working_memory_stored']}")
-                    logger.info(f"✅ Tier 2 facts: {storage_meta['session_facts_extracted']}")
-
+                    
+                    logger.info(f"Tier 1 stored: {storage_meta['working_memory_stored']}")
+                    logger.info(f"Tier 2 facts: {storage_meta['session_facts_extracted']}")
+                    
                     # Store in Tier 3 (Graphiti) - queued
-                    # Only if response is positive/helpful
                     memory_content = f"User: {query}\nAssistant: {assistant_response}"
-
+                    
                     chunks = _backend.store(
                         memory_content,
                         user_id,
@@ -637,7 +458,7 @@ def memory_route_v3(
                             "conversation_id": conversation_id
                         }
                     )
-                    logger.info(f"✅ Tier 3 queued: {chunks} chunks")
+                    logger.info(f"Tier 3 queued: {chunks} chunks")
                     
                 except Exception as e:
                     logger.error(f"Background storage error: {e}")
