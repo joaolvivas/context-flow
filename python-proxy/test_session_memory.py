@@ -7,7 +7,17 @@ Usage:
 """
 import sys
 import os
+import pytest
 from modules.memory.session_memory import SessionMemory
+
+
+@pytest.fixture
+def api_key():
+    """Provide OpenAI API key for tests, pulled from environment or CLI."""
+    key = os.getenv("OPENAI_API_KEY")
+    if not key or key.startswith("<"):
+        pytest.skip("OPENAI_API_KEY not set for fact extraction test")
+    return key
 
 def test_fact_extraction(api_key):
     """Test fact extraction with provided API key"""

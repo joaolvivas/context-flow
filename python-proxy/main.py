@@ -4,9 +4,11 @@ Memory Router Proxy - Transparent LLM proxy with automatic memory
 A simple proxy that sits between Msty Studio and your LLM provider,
 automatically managing context and memories like Supermemory's Memory Router.
 """
+import json
 import re
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, Request, HTTPException, Header
@@ -21,6 +23,7 @@ from models.request_models import ChatCompletionRequest
 from models.response_models import HealthResponse, ErrorResponse
 from modules.router_v3 import memory_route_v3, get_memory_system
 from modules.backends import get_backend
+from modules.memory.langmem_store import get_langmem_store
 from utils.logger import logger
 from utils.metrics import metrics_tracker
 
@@ -81,6 +84,56 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+PROFILE_SEED_PATH = Path(__file__).resolve().parent / "config" / "profile_seed.json"
+DEFAULT_PROFILE_SEED = {
+    "name": "João Lucas Vivas",
+    "bio": "Sou João Lucas (Lucas), media buyer especializado em marcas DTC nos EUA, utilizando IA para automação de campanhas e gestão de performance.",
+    "facts": [
+        {"category": "identidade", "fact": "Meu nome completo é João Lucas Vivas e prefiro ser chamado de Lucas."},
+        {"category": "localizacao", "fact": "Resido no Rio de Janeiro, Brasil, atuando de forma remota."},
+        {"category": "profissional", "fact": "Sou media buyer e especialista em marketing digital para marcas DTC nos Estados Unidos."},
+        {"category": "profissional", "fact": "Administro orçamentos diários entre US$5k e US$20k em campanhas Meta, TikTok e Google."},
+        {"category": "profissional", "fact": "Consegui levar uma marca de e-commerce a US$200k de receita nos três primeiros meses."},
+        {"category": "workflow", "fact": "Uso Upwork, Contra e LinkedIn para prospectar clientes."},
+        {"category": "workflow", "fact": "Crio agentes e automações com IA para otimizar análise e operação de campanhas."},
+        {"category": "objetivos", "fact": "Busco posições remotas, quero ser referência em marketing de performance com IA e conquistar liberdade financeira e geográfica."},
+        {"category": "preferencias", "fact": "Minha cor favorita é preto."},
+        {"category": "preferencias", "fact": "Torço para o Botafogo."},
+        {"category": "familia", "fact": "Tenho um cachorro chamado Koda, da raça American Bully."}
+    ],
+    "memories": [
+        "João Lucas Vivas (Lucas) é um media buyer brasileiro baseado no Rio de Janeiro, focado em marcas DTC dos EUA e acostumado a operar orçamentos entre US$5k e US$20k por dia em Meta, TikTok e Google.",
+        "Ele já conduziu marcas a resultados de alto impacto, como um case de US$200k em três meses, e utiliza fluxos de IA para automação de processos, construção de agentes e otimização de campanhas.",
+        "Lucas prospecta clientes via Upwork, Contra e LinkedIn, mantém relacionamento próximo com marcas de e-commerce e busca consolidar-se como referência em marketing de performance com inteligência artificial.",
+        "Suas metas incluem trabalhar remotamente com liberdade financeira/geográfica, continuar evoluindo em IA aplicada a marketing e cuidar da vida pessoal, incluindo o cachorro Koda (American Bully).",
+        "Preferências pessoais: cor favorita preta e Botafogo como time do coração."
+    ]
+}
+
+
+@app.on_event("startup")
+async def bootstrap_memory_profile() -> None:
+    """Ensure LangMem has the base profile seeded on startup."""
+    if not settings.profile_enabled:
+        return
+
+    try:
+        profile_data = DEFAULT_PROFILE_SEED
+        if PROFILE_SEED_PATH.exists():
+            try:
+                profile_data = json.loads(PROFILE_SEED_PATH.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.warning(f"Failed to read profile seed file, using defaults: {exc}")
+
+        langmem_store = get_langmem_store()
+        await langmem_store.seed_base_profile(
+            settings.default_user_id,
+            f"default-{settings.default_user_id}",
+            profile_data
+        )
+    except Exception as exc:
+        logger.warning(f"profile_seed_startup_failed: {exc}")
 
 
 @app.middleware("http")
@@ -308,7 +361,7 @@ async def memory_peek(
     }
 
 
-@app.post("/v1/memory/seed")
+@app.post("/v1/memory/seed/langmem")
 @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
 async def seed_profile(
     request: Request,
@@ -322,7 +375,15 @@ async def seed_profile(
     _user = user_id or settings.default_user_id
     _conv = conversation_id or f"default-{_user}"
 
-    # Base profile data
+    incoming_profile = {}
+    try:
+        incoming_profile = await request.json()
+        if not isinstance(incoming_profile, dict):
+            incoming_profile = {}
+    except Exception:
+        incoming_profile = {}
+
+    # Base profile data (can be overridden by request body)
     profile_data = {
         "name": "Lucas",
         "bio": "Sou um media buyer profissional especializado em performance marketing e otimização de campanhas.",
@@ -341,10 +402,14 @@ async def seed_profile(
         ]
     }
 
-    try:
-        from modules.memory.langmem_store import get_langmem_store
-        langmem_store = get_langmem_store()
+    if incoming_profile:
+        # Merge incoming data, allowing overrides
+        profile_data.update({k: v for k, v in incoming_profile.items() if v})
 
+    try:
+        langmem_store = get_langmem_store()
+    try:
+        langmem_store = get_langmem_store()
         # Seed the profile
         counts = await langmem_store.seed_base_profile(_user, _conv, profile_data)
 

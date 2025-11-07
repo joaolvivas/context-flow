@@ -139,22 +139,28 @@ class LangMemStore:
                 logger.info("  ✓ InMemoryStore initialized (dev mode)")
             else:
                 # Production mode with Redis
-                # RedisStore.from_conn_string returns a context manager
-                # We need to enter it and keep the store instance
                 RedisStoreClass = _get_redis_store_class()
 
-                # Use Redis with embeddings for vector search
-                import redis.asyncio as redis_async
+                # Use synchronous Redis client (Async client triggers coroutine issues)
+                import redis
 
-                # Create Redis client directly
-                self._redis_client = redis_async.from_url(self.redis_url)
+                self._redis_client = redis.from_url(self.redis_url)
 
-                # Create store with embeddings
-                # RedisStore expects (conn_string, index={embed: Embeddings})
+                # Create store with embeddings and dimension config
+                index_config = None
+                if embeddings:
+                    index_config = {
+                        "embed": embeddings,
+                        "dims": self.embedding_dims,
+                    }
+
                 self._store = RedisStoreClass(
                     self._redis_client,
-                    index={"embed": embeddings} if embeddings else None
+                    index=index_config
                 )
+
+                # Ensure indices exist
+                self._store.setup()
 
                 logger.info(f"  ✓ RedisStore initialized (redis={self.redis_url})")
 

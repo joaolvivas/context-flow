@@ -70,6 +70,26 @@ python main.py
 # Or: uvicorn main:app --reload --port 8000
 ```
 
+### 3.1 Run 24/7 (daemon mode)
+
+```
+chmod +x scripts/start-daemon.sh scripts/stop-daemon.sh
+./scripts/start-daemon.sh
+```
+
+This will:
+1. Ensure a `redis-stack` container is running (required for LangMem persistence)
+2. Activate the local virtualenv
+3. Launch `uvicorn main:app` in the background and log output to `logs/proxy.log`
+
+Stop with:
+
+```
+./scripts/stop-daemon.sh
+```
+
+> Tip: combine with `launchctl` or `pm2` to start `start-daemon.sh` automatically on macOS boot.
+
 ### 4. Use with Msty Studio
 
 In Msty, add a custom provider:
@@ -181,6 +201,9 @@ MEMORY_CHUNK_SIZE=500            # Chunk size for long messages
 | `/health` | GET | Health check |
 | `/metrics` | GET | Usage metrics and stats |
 | `/` | GET | Service info |
+| `/v1/memory/seed` | POST | Legacy Graphiti → Redis (Tier 1/2) seeding |
+| `/v1/memory/seed/langmem` | POST | Seed LangMem (conversations/facts/memories); also triggered automatically on startup |
+| `/v1/memory/peek` | GET | Inspect current LangMem state |
 
 ## Memory Integration
 
@@ -192,6 +215,12 @@ Configure endpoints in `.env`:
 MCP_SEARCH_ENDPOINT=http://localhost:5000/mcp/search
 MCP_STORE_ENDPOINT=http://localhost:5000/mcp/store
 ```
+
+LangGraph V4 now calls Graphiti through the MCP backend automatically whenever the classifier escalates a request to Tier 3. Results are merged with LangMem semantic memories to build the final context.
+
+### Base Profile Auto-Seed
+
+A canonical profile (stored in `config/profile_seed.json`) is automatically seeded into LangMem during application startup. The seeding routine is idempotent and runs only if the `base_profile_seeded` marker is missing. To override or extend the seed, edit the JSON file and restart the proxy.
 
 ### Conversation Tracking
 

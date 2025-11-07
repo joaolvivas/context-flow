@@ -253,6 +253,16 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
 
     # NEW: Use LangMemStore instead of manual tiers
     langmem_store = get_langmem_store()
+    backend = None
+    if classification.get("use_graphiti"):
+        try:
+            backend = get_backend(
+                state.get("backend_type", "graphiti"),
+                **(state.get("backend_config") or {})
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to initialize Graphiti backend: {exc}")
+            backend = None
 
     # Define async retrieval functions using LangMemStore
     async def get_tier1():
@@ -302,32 +312,91 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
         return context
 
     async def get_tier3():
-        """Retrieve long-term memories from LangMem (memories namespace) with semantic search"""
+        """Retrieve long-term memories from LangMem and Graphiti when requested."""
         if not classification["use_graphiti"]:
             return ""
 
-        # Use LangMem semantic search instead of Graphiti
-        memories = await langmem_store.search_memories(
-            state["user_id"],
-            state["query"],
-            limit=classification["search_limit"]
-        )
+        sections: List[str] = []
+        total_memories = 0
+
+        # LangMem (semantic embeddings)
+        try:
+            memories = await langmem_store.search_memories(
+                state["user_id"],
+                state["query"],
+                limit=classification["search_limit"]
+            )
+        except Exception as exc:
+            logger.warning(f"LangMem Tier3 search failed: {exc}")
+            memories = []
 
         if memories:
-            context_parts = []
+            content_blocks = []
             for memory in memories:
-                content = memory.get("content", "")
+                content = memory.get("content", "") or memory.get("metadata", {}).get("summary", "")
                 filtered_content = filter_negative_content(content)
                 if filtered_content:
-                    context_parts.append(filtered_content)
-
-            context = "\n\n".join(context_parts)
-            state["metadata"]["tier_3_memories"] = len(memories)
+                    content_blocks.append(filtered_content)
+            if content_blocks:
+                sections.append("### LangMem Memories\n" + "\n\n".join(content_blocks))
+            total_memories += len(memories)
             state["metadata"]["tiers_used"].append("Tier 3 (LangMem Memories)")
-
             logger.info(f"  ✓ Tier 3 (LangMem): {len(memories)} memories (semantic search)")
-            return context
 
+        # Graphiti MCP (knowledge graph)
+        graphiti_results: List[Dict[str, Any]] = []
+        if backend is not None:
+            try:
+                search_limit = classification.get("search_limit") or int(os.getenv("GRAPHITI_LANGGRAPH_LIMIT", "5"))
+                graphiti_results = backend.search(
+                    state["query"],
+                    state["user_id"],
+                    limit=search_limit
+                ) or []
+            except Exception as exc:
+                logger.warning(f"Graphiti search failed: {exc}")
+
+        if graphiti_results:
+            formatted_results = []
+            for result in graphiti_results:
+                text = (
+                    result.get("summary")
+                    or result.get("content")
+                    or result.get("fact")
+                    or result.get("text")
+                    or ""
+                )
+                formatted = filter_negative_content(text.strip())
+                if not formatted:
+                    continue
+                if result.get("metadata"):
+                    meta = result["metadata"]
+                    entity = meta.get("entity")
+                    relation = meta.get("relation")
+                    if entity or relation:
+                        header_parts = []
+                        if entity:
+                            header_parts.append(f"Entity: {entity}")
+                        if relation:
+                            header_parts.append(f"Relation: {relation}")
+                        formatted_results.append(f"{'; '.join(header_parts)}\n{formatted}")
+                    else:
+                        formatted_results.append(formatted)
+                else:
+                    formatted_results.append(formatted)
+
+            if formatted_results:
+                sections.append("### Graphiti Knowledge Graph\n" + "\n\n".join(formatted_results))
+                total_memories += len(formatted_results)
+                state["metadata"]["tiers_used"].append("Tier 3 (Graphiti)")
+                state["metadata"]["graphiti_results"] = len(formatted_results)
+                logger.info(f"  ✓ Tier 3 (Graphiti): {len(formatted_results)} results")
+
+        if sections:
+            state["metadata"]["tier_3_memories"] = total_memories
+            return "\n\n".join(sections)
+
+        return ""
         return ""
 
     # Execute all retrieval tasks in parallel
@@ -368,7 +437,8 @@ async def parallel_retrieval_node(state: AgentState) -> AgentState:
                 "tiers_used": state["metadata"]["tiers_used"],
                 "working_memory_turns": state["metadata"].get("tier_1_turns", 0),
                 "session_facts": state["metadata"].get("tier_2_facts", 0),
-                "graphiti_memories": state["metadata"].get("tier_3_memories", 0)
+                "graphiti_memories": state["metadata"].get("tier_3_memories", 0),
+                "graphiti_results": state["metadata"].get("graphiti_results", 0)
             }
 
             cache.set(
