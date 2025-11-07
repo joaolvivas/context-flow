@@ -312,11 +312,13 @@ def route_to_llm(
     # Forward any additional parameters
     payload.update(extra_params)
 
+    request_timeout = 180 if is_local else 60
+
     response = requests.post(
         f"{provider_url}/chat/completions",
         headers=headers,
         json=payload,
-        timeout=60,
+        timeout=request_timeout,
         stream=stream
     )
 
